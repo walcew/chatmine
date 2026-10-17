@@ -27,8 +27,6 @@ VAULT = ChromiumVault(
 class TeamsTokens:
     authtoken: str
     skypetoken: str
-    claims: dict[str, Any]
-    skype_claims: dict[str, Any]
     region: str
     skypeid: str | None
     tenant_id: str | None
@@ -49,6 +47,10 @@ class TenantInfo:
 
 def _parse_claims(token: str) -> dict[str, Any]:
     return jwt.decode(token, options={"verify_signature": False, "verify_aud": False})
+
+
+def _exp(claims: dict[str, Any]) -> datetime:
+    return datetime.fromtimestamp(int(claims.get("exp", 0)), tz=UTC)
 
 
 def _strip_jwt_trailing(token: str) -> str:
@@ -101,7 +103,7 @@ def discover_tenants(profile: str = "tfw") -> list[TenantInfo]:
         tid = claims.get("tid")
         if not tid:
             continue
-        exp = datetime.fromtimestamp(int(claims.get("exp", 0)), tz=UTC)
+        exp = _exp(claims)
         if tid in seen:  # last_access_utc já vem DESC: mantém o mais recente por tid
             continue
         seen[tid] = TenantInfo(
@@ -188,12 +190,12 @@ def get_tokens(profile: str = "tfw", tenant: str | None = None) -> TeamsTokens:
     now = datetime.now(tz=UTC)
     if hit is not None:
         skypetoken, skype_claims = hit
-        sk_exp = datetime.fromtimestamp(int(skype_claims.get("exp", 0)), tz=UTC)
+        sk_exp = _exp(skype_claims)
         if (sk_exp - now).total_seconds() < 60:
             hit = None
     if hit is None:
         skypetoken, skype_claims = _exchange_for_skypetoken(selected._authtoken)
-        sk_exp = datetime.fromtimestamp(int(skype_claims.get("exp", 0)), tz=UTC)
+        sk_exp = _exp(skype_claims)
 
     claims = _parse_claims(selected._authtoken)
     region = (
@@ -203,8 +205,6 @@ def get_tokens(profile: str = "tfw", tenant: str | None = None) -> TeamsTokens:
     return TeamsTokens(
         authtoken=selected._authtoken,
         skypetoken=skypetoken,
-        claims=claims,
-        skype_claims=skype_claims,
         region=region,
         skypeid=(
             skype_claims.get("skypeid") or claims.get("skypeid") or claims.get("skype_id")

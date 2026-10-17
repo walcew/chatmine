@@ -15,8 +15,8 @@ def get(name: str) -> Provider:
     try:
         return _REGISTRY[name]
     except KeyError:
-        disponiveis = ", ".join(names()) or "(nenhum)"
-        raise KeyError(f"Provider {name!r} não registrado. Disponíveis: {disponiveis}") from None
+        available = ", ".join(names()) or "(nenhum)"
+        raise KeyError(f"Provider {name!r} não registrado. Disponíveis: {available}") from None
 
 
 def names() -> list[str]:

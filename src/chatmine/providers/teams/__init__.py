@@ -12,9 +12,6 @@ from .normalize import normalize_conversation, normalize_message
 class TeamsProvider:
     name = "teams"
 
-    def __init__(self) -> None:
-        self._client: ChatSvcClient | None = None
-
     def discover_accounts(self, profile: str | None = None) -> list[Account]:
         return [
             Account(
@@ -29,7 +26,6 @@ class TeamsProvider:
 
     def authenticate(self, selector: str | None = None, profile: str | None = None) -> Session:
         tokens = get_tokens(profile or "tfw", tenant=selector)
-        self._client = ChatSvcClient(tokens)
         account = Account(
             id=tokens.tenant_id or "",
             label=tokens.upn or tokens.tenant_id or "(sem UPN)",
@@ -42,11 +38,11 @@ class TeamsProvider:
             expires_at=tokens.skypetoken_exp,
             self_id=f"8:{tokens.skypeid}" if tokens.skypeid else None,
             label=f"{account.label} região={tokens.region} skypeid={tokens.skypeid}",
-            raw=tokens,
+            raw=ChatSvcClient(tokens),  # client chatsvc vivo desta sessão
         )
 
     def list_conversations(self, session: Session, start_time_ms: int) -> list[Conversation]:
-        raw = list_recent_conversations(self._require_client(), start_time_ms)
+        raw = list_recent_conversations(session.raw, start_time_ms)
         return [normalize_conversation(c) for c in raw]
 
     def iter_messages(
@@ -60,17 +56,12 @@ class TeamsProvider:
     ) -> Iterator[Message]:
         topic = conversation.get("topic") or ""
         for m in iter_raw_messages(
-            self._require_client(),
+            session.raw,
             conversation["id"],
             start_time_ms=start_time_ms,
             include_system=include_system,
         ):
             yield normalize_message(m, topic, include_raw=include_raw)
-
-    def _require_client(self) -> ChatSvcClient:
-        if self._client is None:
-            raise RuntimeError("authenticate() precisa ser chamado antes de buscar dados.")
-        return self._client
 
 
 register(TeamsProvider())
