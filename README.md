@@ -63,6 +63,20 @@ agenda sincronizada (`ContactsV2.sqlite`). Não há API, token nem expiração d
 Mensagens próprias saem com `from.mri = "self"`. Edição, reações e reply não são
 extraídos (ficam em protobuf). Anexos apontam para o arquivo local, quando baixado.
 
+## Skill para agentes de IA
+
+A CLI traz embutida uma skill (em inglês) que ensina agentes de IA a usá-la:
+
+```bash
+chatmine skill            # imprime a skill
+chatmine skill install    # instala para os agentes desta máquina
+```
+
+O `install` segue a lógica do `npx skills add -g`. A cópia canônica vai para
+`~/.agents/skills/chatmine`, que já é lida por Codex, Cursor, Gemini CLI, GitHub Copilot,
+OpenCode e outros. Claude Code, Windsurf, Goose e Kiro, quando instalados, ganham um
+link para ela. Rode de novo depois de atualizar o chatmine.
+
 ## Teste manual (smoke test)
 
 O caminho de extração ao vivo exige uma sessão autenticada real, então não roda em CI.

@@ -13,6 +13,18 @@ def _cmd_providers(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_skill(args: argparse.Namespace) -> int:
+    from . import skill
+
+    if args.action != "install":
+        sys.stdout.write(skill.skill_text())
+        return 0
+    for agent, dest in skill.install():
+        print(f"{dest}  ({agent})")
+    print("Rode de novo depois de atualizar o chatmine, para a skill acompanhar a CLI.")
+    return 0
+
+
 def _cmd_accounts(args: argparse.Namespace) -> int:
     provider = core.get(args.provider)
     accounts = provider.discover_accounts(args.profile)
@@ -69,6 +81,20 @@ def main(argv: list[str] | None = None) -> int:
 
     p_prov = sub.add_parser("providers", help="Lista os providers registrados")
     p_prov.set_defaults(func=_cmd_providers)
+
+    p_skill = sub.add_parser(
+        "skill",
+        help="Imprime as instruções de uso da CLI para agentes de IA (em inglês). "
+        "`skill install` as instala para os agentes desta máquina.",
+    )
+    p_skill.add_argument(
+        "action",
+        nargs="?",
+        choices=["install"],
+        help="install: grava em ~/.agents/skills (Codex, Cursor, Gemini CLI, Copilot, OpenCode…) "
+        "e liga aos agentes que leem outra pasta (Claude Code, Windsurf, Goose, Kiro)",
+    )
+    p_skill.set_defaults(func=_cmd_skill)
 
     for name in core.names():
         _add_provider_commands(sub, name)
