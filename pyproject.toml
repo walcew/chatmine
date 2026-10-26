@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatmine"
-version = "0.1.0"
+dynamic = ["version"]
 description = "CLI que extrai histórico de chats de apps desktop reaproveitando a sessão local autenticada, num schema canônico consumível por IA."
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,9 @@ chatmine = "chatmine.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "chatmine.__version__"}
 
 [tool.setuptools.package-data]
 chatmine = ["SKILL.md"]

@@ -25,6 +25,13 @@ cliente de API + a normalização — nenhuma cripta nova.
 ## Instalação
 
 ```bash
+brew install walcew/tap/chatmine
+chatmine skill install    # opcional: ensina a CLI aos agentes de IA desta máquina
+```
+
+A partir do código-fonte:
+
+```bash
 pipx install .
 # ou, para desenvolvimento:
 python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
@@ -36,7 +43,7 @@ python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
 chatmine providers                         # lista os providers registrados
 chatmine teams accounts                    # contas (tenants) com sessão local válida
 chatmine teams accounts --profile tfl      # perfil pessoal (default: tfw = work)
-chatmine teams extract --account undp.org --days 7 --out ./out
+chatmine teams extract --account contoso.com --days 7 --out ./out
 chatmine teams extract --days 7 --raw      # inclui o JSON cru de cada mensagem
 chatmine whatsapp extract --days 7 --out ./out
 chatmine whatsapp extract --profile business --days 7   # WhatsApp Business
