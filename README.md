@@ -19,7 +19,7 @@ conector MCP.
 4. Normaliza tudo para o schema canônico e grava em `--out`.
 
 A camada de decriptação é genérica (um `ChromiumVault` por app); cada app é um
-**provider**. Hoje: `teams`. Adicionar Slack/Discord é declarar o cofre deles + o
+**provider**. Hoje: `teams` (via API) e `whatsapp` (100% local, lê o SQLite do app). Adicionar Slack/Discord é declarar o cofre deles + o
 cliente de API + a normalização — nenhuma cripta nova.
 
 ## Instalação
@@ -38,6 +38,8 @@ chatmine teams accounts                    # contas (tenants) com sessão local 
 chatmine teams accounts --profile tfl      # perfil pessoal (default: tfw = work)
 chatmine teams extract --account undp.org --days 7 --out ./out
 chatmine teams extract --days 7 --raw      # inclui o JSON cru de cada mensagem
+chatmine whatsapp extract --days 7 --out ./out
+chatmine whatsapp extract --profile business --days 7   # WhatsApp Business
 ```
 
 `--account` aceita tenant-id (ou prefixo), UPN ou domínio. Sem ele, usa a conta com a
@@ -51,6 +53,15 @@ para renovar). Python 3.11+.
 
 No Windows, rode sob o **mesmo usuário** logado no Teams. Perfis com app-bound
 encryption (v20) exigem privilégios SYSTEM — o CLI detecta e explica.
+
+### Pré-requisitos (WhatsApp)
+
+WhatsApp Desktop nativo do macOS (`/Applications/WhatsApp.app`) instalado e sincronizado.
+O provider lê, em modo read-only, o `ChatStorage.sqlite` do group container
+(`~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared`) e resolve nomes pela
+agenda sincronizada (`ContactsV2.sqlite`). Não há API, token nem expiração de sessão.
+Mensagens próprias saem com `from.mri = "self"`. Edição, reações e reply não são
+extraídos (ficam em protobuf). Anexos apontam para o arquivo local, quando baixado.
 
 ## Teste manual (smoke test)
 
