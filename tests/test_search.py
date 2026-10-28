@@ -348,3 +348,20 @@ def test_include_bulk_is_passed_to_providers(fake, capsys):
     _search(capsys, "x", "--provider", "fake-a", "--include-bulk")
     lists = [kw for call, kw, *_ in fake.calls if call == "list"]
     assert lists == [{"include_bulk": False}, {"include_bulk": True}]
+
+
+def test_conversations_are_read_concurrently(register, capsys):
+    """Teams leva ~0,7 s por conversa na rede; ler em série deixava a busca de 7 dias em 30 s."""
+    import threading
+
+    barrier = threading.Barrier(2, timeout=2)
+
+    class Slow(_Fake):
+        def iter_messages(self, session, conv, start_time_ms, **kwargs):
+            barrier.wait()  # só passa se as duas conversas estiverem sendo lidas juntas
+            yield from super().iter_messages(session, conv, start_time_ms, **kwargs)
+
+    register(Slow("fake-slow", [GROUP, DM], _base_msgs()))
+    rc, env, _ = _search(capsys, "o", "--provider", "fake-slow", *WINDOW)
+    assert rc == 0 and env["errors"] == []
+    assert {"g3", "d2"} <= set(_ids(env))

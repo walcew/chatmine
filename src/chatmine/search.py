@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
@@ -115,10 +116,10 @@ def _search_provider(
     if (session.expires_at - datetime.now(tz=UTC)).total_seconds() < 60:
         raise RuntimeError("session expired")
     start_ms = int(start.timestamp() * 1000)
-    found: list[Found] = []
-    for conv in provider.list_conversations(session, start_ms, include_bulk=args.include_bulk):
+
+    def read(conv: Conversation) -> list[Message] | None:
         try:
-            msgs = [
+            return [
                 m
                 for m in provider.iter_messages(session, conv, start_ms)
                 if not (t := _time(m.get("composetime"))) or start <= t <= end
@@ -126,6 +127,15 @@ def _search_provider(
         except RuntimeError as e:
             # Conversa inacessível (ex.: 403 no Teams): pula sem perder o provider.
             print(f"[{name}] pulando {conv['id']}: {str(e)[:80]}", file=sys.stderr)
+            return None
+
+    convs = provider.list_conversations(session, start_ms, include_bulk=args.include_bulk)
+    # Em paralelo porque o Teams faz uma requisição por conversa (~0,7 s cada, medido na #11).
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        read_all = list(zip(convs, pool.map(read, convs), strict=True))
+    found: list[Found] = []
+    for conv, msgs in read_all:
+        if msgs is None:
             continue
         msgs.sort(key=lambda m: m.get("composetime") or "")
         if title := one_on_one_title(conv, msgs, session.self_id):
