@@ -95,7 +95,7 @@ def normalize_message(
                 "contentUrl": a.get("contentUrl"),
                 "path": None,
                 "url": a.get("contentUrl"),
-                "available": False,  # o download fica para o search
+                "available": False,  # o Teams só tem o link remoto; não há arquivo local
             }
             for a in (msg.get("attachments") or [])
         ],

@@ -21,8 +21,8 @@ from .window import resolve_window
 console = Console()
 
 
-def _after(composetime: str | None, limit: datetime) -> bool:
-    return bool(composetime) and datetime.fromisoformat(composetime) > limit
+def _outside(composetime: str | None, start: datetime, end: datetime) -> bool:
+    return bool(composetime) and not start <= datetime.fromisoformat(composetime) <= end
 
 
 def run_extract(
@@ -65,8 +65,6 @@ def run_extract(
     conversations = provider.list_conversations(session, start_ms, include_bulk=include_bulk)
     console.print(f"  {len(conversations)} conversas")
 
-    self_id = session.self_id
-    self_ids = self_id if isinstance(self_id, frozenset) else {self_id}
     all_messages: list[dict] = []
     msg_counts: dict[str, int] = {}
     sender_counts: Counter[str] = Counter()
@@ -93,8 +91,9 @@ def run_extract(
                     include_system=include_system,
                     include_raw=include_raw,
                 ):
-                    # O provider só recebe o início; o corte por `until` é aqui.
-                    if until and _after(norm.get("composetime"), window_end):
+                    # O provider só recebe o início (e o Mail filtra pela data de
+                    # recebimento); o corte exato da janela é aqui.
+                    if _outside(norm.get("composetime"), window_start, window_end):
                         continue
                     norm["conversationId"] = cid
                     all_messages.append(norm)
@@ -105,7 +104,7 @@ def run_extract(
                         conv["type"] == "oneOnOne"
                         and counterpart_name is None
                         and norm["from"]["mri"]
-                        and norm["from"]["mri"] not in self_ids
+                        and not core.is_self(session.self_id, norm["from"]["mri"])
                         and norm["from"]["displayName"]
                     ):
                         counterpart_name = norm["from"]["displayName"]
@@ -122,6 +121,8 @@ def run_extract(
             msg_counts[cid] = count
             prog.advance(task)
 
+    if until:  # conversas só com atividade depois do fim da janela
+        conversations = [c for c in conversations if msg_counts.get(c["id"])]
     all_messages.sort(key=lambda m: (m.get("composetime") or ""), reverse=True)
     write_jsonl(out / "messages.jsonl", all_messages)
     write_json(out / "conversations.json", conversations)

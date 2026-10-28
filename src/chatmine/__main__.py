@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (PermissionError, FileNotFoundError, ValueError) as e:
+    except (PermissionError, FileNotFoundError, core.UsageError) as e:
         print(f"Erro: {e}", file=sys.stderr)
         return 2
 

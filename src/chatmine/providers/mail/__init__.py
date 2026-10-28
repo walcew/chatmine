@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ...core.models import Account, Conversation, Message, Session
+from ...core.models import Account, Conversation, Message, Session, UsageError
 from ...core.registry import register
 from .store import (
     ATTACHMENTS_SQL,
@@ -43,6 +43,7 @@ NEVER = datetime.max.replace(tzinfo=UTC)
 class MailStore:
     data: Path
     mailboxes: dict[int, Path]  # só as pastas das contas escolhidas, sem Lixeira e Spam
+    accounts: dict[int, str]  # pasta -> rótulo da conta, para cada resultado dizer a sua
 
 
 def _index(data: Path) -> Path:
@@ -54,7 +55,7 @@ class MailProvider:
 
     def _scan(self) -> tuple[Path, dict[int, str], list[Account], set[str]]:
         data = data_dir()
-        labels = account_labels(data)
+        labels = account_labels()
         with closing(connect(_index(data))) as conn:
             mailboxes = load_mailboxes(conn)
             senders = sent_senders(conn, mailboxes)
@@ -79,25 +80,31 @@ class MailProvider:
         chosen = accounts
         if selector:
             wanted = selector.lower()
-            chosen = [a for a in accounts if wanted in (a.id.lower(), a.label.lower())]
+            chosen = [
+                a for a in accounts
+                if wanted in (a.id.lower(), a.label.lower())
+                or a.label.lower().endswith("@" + wanted)
+            ]
             if not chosen:
                 available = ", ".join(a.label for a in accounts) or "(nenhuma)"
-                raise ValueError(
+                raise UsageError(
                     f"Conta {selector!r} não encontrada no Mail. Disponíveis: {available}"
                 )
         if not chosen:
             raise FileNotFoundError("Nenhuma conta encontrada no Apple Mail")
-        ids = {a.id for a in chosen}
+        labels = {a.id: a.label for a in chosen}
         account = chosen[0] if len(chosen) == 1 else Account(
             id="all", label=", ".join(a.label for a in chosen), expires_at=NEVER, hint=str(data)
         )
+        kept = {
+            mid: url
+            for mid, url in mailboxes.items()
+            if mailbox_account(url) in labels and mailbox_name(url) not in EXCLUDED_MAILBOXES
+        }
         store = MailStore(
             data=data,
-            mailboxes={
-                mid: mailbox_dir(data, url)
-                for mid, url in mailboxes.items()
-                if mailbox_account(url) in ids and mailbox_name(url) not in EXCLUDED_MAILBOXES
-            },
+            mailboxes={mid: mailbox_dir(data, url) for mid, url in kept.items()},
+            accounts={mid: labels[mailbox_account(url)] for mid, url in kept.items()},
         )
         return Session(
             account=account,
@@ -145,6 +152,7 @@ class MailProvider:
                     "topic": clean_subject(r["subject"]),
                     "createdAt": None,
                     "lastMessageTime": epoch_to_iso(r["date_received"]),
+                    "account": session.raw.accounts[r["mailbox"]],
                 }
             members = people.setdefault(cid, set())
             for s in [sender(r["address"], r["comment"])] + [
@@ -171,8 +179,11 @@ class MailProvider:
         rows, recipients, files = self._rows(store, start_time_ms, conversation["id"])
         for r in rows:
             path = emlx_path(store.mailboxes[r["mailbox"]], r["ROWID"])
-            # Sem .emlx (o Mail ainda não baixou a mensagem) sai só o envelope.
-            msg = read_emlx(path) if path else None
+            # Sem .emlx legível (o Mail ainda não baixou a mensagem) sai só o envelope.
+            try:
+                msg = read_emlx(path) if path else None
+            except (ValueError, OSError):
+                msg = None
             text, html = bodies(msg) if msg else ("", "")
             to = recipients.get(r["ROWID"], {})
             out: Message = {

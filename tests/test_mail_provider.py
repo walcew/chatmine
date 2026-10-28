@@ -46,6 +46,7 @@ ADDRESSES = {
     7: ("spam@ext.example", ""),
     8: ("news@loja.example", "Loja"),
     9: ("lista@grupo.example", "Lista"),
+    10: ("Eu@Trabalho.Example", "Eu Trabalho"),  # Exchange às vezes grava com maiúsculas
 }
 MAILBOXES = {
     1: "ews://EWS-0001/Caixa%20de%20Entrada",
@@ -118,7 +119,26 @@ QUOTED = {
     "Para: Ana\nAssunto: Plano\n\nTexto antigo.",
     2012: "Novo.\n\nFrom: Carlos <c@ext.example>\nDate: Monday, October 5, 2026 at 10:00 AM\n"
     "To: Ana\nSubject: Plan\n\nOld text.",
+    # frases comuns que começam com "Em"/"On" antes da atribuição não são citação
+    2014: "Bom dia,\nEm anexo o contrato.\n\nAbs,\nAna\n\n"
+    "Em qua., 5 de out. de 2026 10:00, Carlos <c@ext.example> escreveu:\n> Antigo.",
+    2015: "Oi\nOn second thought, vamos manter.\n\n"
+    "On Mon, Oct 5, 2026 at 10:00 AM Carlos <c@ext.example> wrote:\n> Old text.",
+    # "De:"/"Data:" sem "Para:"/"Assunto:" não é cabeçalho do Outlook
+    2016: "Novo.\nDe: segunda a sexta\nData: 10/10",
 }
+# texto esperado quando não é só "Novo."
+KEPT = {
+    2014: "Bom dia,\nEm anexo o contrato.\n\nAbs,\nAna",
+    2015: "Oi\nOn second thought, vamos manter.",
+    2016: QUOTED[2016],
+}
+# Outlook HTML-only: o cabeçalho vem em <b>De:</b>...<br>
+HTML_OUTLOOK = (
+    "<p>Novo.</p>\r\n<div><p><b>De:</b> Carlos &lt;c@ext.example&gt;<br>\r\n"
+    "<b>Enviado:</b> segunda-feira, 5 de outubro de 2026 10:00<br>\r\n<b>Para:</b> Ana<br>\r\n"
+    "<b>Assunto:</b> Plano</p></div>\r\n<p>Texto antigo.</p>"
+)
 
 
 def with_parts(*parts: str) -> bytes:
@@ -150,7 +170,9 @@ ATTACHMENTS = {
     3001: [("2", "relatorio.pdf"), ("3", "logo.png")],
     3002: [("2", "planilha.xls")],
     3003: [("2", "assinatura.png")],
+    3004: [(None, None)],
 }
+BROKEN_EMLX = {3004}
 DOWNLOADED = {(3001, "2", "relatorio.pdf")}
 PARTIAL = {12345, 3002}
 SIMPLE = b"From: x\r\nSubject: s\r\nContent-Type: text/plain\r\n\r\ncorpo\r\n"
@@ -202,17 +224,26 @@ MESSAGES = [
         2013, 1, 800, 2013, 2, None, "Plano", RECENT + 2013, [1], [],
         ("Caixa de Entrada", reply(EMPTY_PLAIN, 'multipart/alternative; boundary="B"')),
     ),
+    (
+        2017, 1, 800, 2017, 2, None, "Plano", RECENT + 2017, [1], [],
+        ("Caixa de Entrada", reply(HTML_OUTLOOK, "text/html")),
+    ),
     (3001, 1, 900, 3001, 2, None, "Anexos", RECENT + 1, [1], [],
      ("Caixa de Entrada", with_parts(PDF_PART, LOGO_PART))),
     (3002, 1, 900, 3002, 2, None, "Anexos", RECENT + 2, [1], [],
      ("Caixa de Entrada", with_parts(XLS_PART))),
     (3003, 1, 900, 3003, 2, None, "Anexos", RECENT + 3, [1], [],
      ("Caixa de Entrada", with_parts(CID_PART))),
+    # .emlx com cabeçalho de tamanho inválido e anexo sem nome nem id no índice
+    (3004, 1, 900, 3004, 2, None, "Anexos", RECENT + 4, [1], [], ("Caixa de Entrada", SIMPLE)),
     (7001, 8, 700, 71, 6, None, "Oi", RECENT, [2], [], ("Sent", SIMPLE)),
     # newsletter (1100) e thread de lista em que respondi (1200), ambas com unsubscribe one-click
     (1101, 1, 1100, 1101, 8, None, "Ofertas", RECENT, [1], [], None),
     (1201, 1, 1200, 1201, 9, None, "Debate", RECENT, [1], [], None),
     (1202, 1, 1200, 1202, 1, "Re: ", "Debate", RECENT + 1, [9], [], None),
+    # conversa 1300: remetente próprio com maiúsculas; sem message_id nem global_message_id
+    (1301, 2, 1300, None, 10, None, "Caixa Alta", RECENT, [2], [], None),
+    (1302, 1, 1300, None, 2, "Re: ", "Caixa Alta", RECENT + 1, [1], [], None),
 ]
 # unsubscribe_type é bitmask (1 mailto, 2 http, 4 one-click); sem entrada fica NULL
 UNSUBSCRIBE = {1101: 6, 1201: 7, 1202: 7}
@@ -260,7 +291,7 @@ def library(tmp_path, monkeypatch):
             if file:
                 path = emlx_path(mail, MAILBOXES[mb], file[0], row)
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(emlx(file[1]))
+                path.write_bytes(b"x\n" + file[1] if row in BROKEN_EMLX else emlx(file[1]))
                 for aid, name in ATTACHMENTS.get(row, []):
                     c.execute("INSERT INTO attachments (message, attachment_id, name)"
                               " VALUES (?,?,?)", (row, aid, name))
@@ -291,7 +322,8 @@ def test_accounts_have_readable_labels(library):
 def test_conversations_skip_trash_spam_and_old(library):
     session = MailProvider().authenticate()
     convs = {c["id"]: c for c in MailProvider().list_conversations(session, START_MS)}
-    assert set(convs) == {"100", "200", "700", "800", "900", "1200"}  # sem a newsletter 1100
+    # sem a newsletter 1100
+    assert set(convs) == {"100", "200", "700", "800", "900", "1200", "1300"}
     assert convs["100"]["topic"] == "Cotação"
     assert convs["100"]["type"] == "group"  # eu, Ana e Bia
     assert convs["200"]["topic"] == "Reunião"  # sem o "Fw:"
@@ -325,7 +357,9 @@ def test_self_addresses_cover_all_accounts(library):
     assert {"eu@trabalho.example", "eu@gmail.example", "outro@pessoal.example"} <= session.self_id
 
 
-@pytest.mark.parametrize("selector", ["eu@gmail.example", "GML-0001", "EU@GMAIL.EXAMPLE"])
+@pytest.mark.parametrize(
+    "selector", ["eu@gmail.example", "GML-0001", "EU@GMAIL.EXAMPLE", "gmail.example"]
+)
 def test_account_selector_filters(library, selector):
     session = MailProvider().authenticate(selector)
     convs = MailProvider().list_conversations(session, START_MS)
@@ -354,8 +388,8 @@ def test_mail_listed_in_providers(capsys):
 def test_quoted_history_is_cut_from_text_but_kept_in_html(library):
     session = MailProvider().authenticate()
     by_id = {m["id"]: m for m in messages(session, "800")}
-    for rowid in [str(r) for r in QUOTED if r != 2006] + ["2007", "2013"]:
-        assert by_id[rowid]["contentText"] == "Novo.", rowid
+    for rowid in [r for r in QUOTED if r != 2006] + [2007, 2013, 2017]:
+        assert by_id[str(rowid)]["contentText"] == KEPT.get(rowid, "Novo."), rowid
     assert by_id["2007"]["contentHtml"].count("Texto antigo.") == 1
     # tudo citado: mantém o corpo inteiro
     assert "Texto antigo." in by_id["2006"]["contentText"]
@@ -379,6 +413,9 @@ def test_attachments_have_path_and_availability(library):
     # inline só por cid: referenciado no HTML
     assert by_id["3003"]["attachments"] == []
     assert by_id["3001"]["contentText"] == "Veja."
+    # .emlx ilegível: sai o envelope; anexo sem nome no índice não derruba a extração
+    assert by_id["3004"]["contentText"] == ""
+    assert [(a["name"], a["available"]) for a in by_id["3004"]["attachments"]] == [(None, False)]
 
 
 def _extracted_convs(tmp_path, *flags):
@@ -404,3 +441,25 @@ def test_search_include_bulk_reaches_mail(library, capsys):
 
     assert ids() == []
     assert ids("--include-bulk") == ["1101"]
+
+
+def _search(capsys, query, *flags):
+    assert main(["search", query, "--provider", "mail", "--days", "1", *flags]) == 0
+    return json.loads(capsys.readouterr().out)["results"]
+
+
+def test_self_detection_ignores_case(library, capsys):
+    by_id = {r["id"]: r for r in _search(capsys, "Caixa Alta")}
+    assert by_id["1301"]["isSelf"] is True
+    assert by_id["1302"]["isSelf"] is False
+
+
+def test_messages_without_ids_are_not_merged(library):
+    session = MailProvider().authenticate()
+    assert [m["id"] for m in messages(session, "1300")] == ["1302", "1301"]
+
+
+def test_search_result_carries_message_account(library, capsys):
+    accounts = {r["conversation"]["id"]: r["account"] for r in _search(capsys, "")}
+    assert accounts["100"] == "eu@trabalho.example"
+    assert accounts["200"] == "eu@gmail.example"

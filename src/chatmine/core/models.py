@@ -35,6 +35,19 @@ class Session:
     raw: Any = field(default=None, repr=False)  # bundle de credenciais do provider
 
 
+def is_self(self_id: str | frozenset[str] | None, mri: str | None) -> bool:
+    """Se `mri` é o próprio usuário. No Mail (conjunto em minúsculas) a caixa é ignorada."""
+    if not mri or not self_id:
+        return False
+    if isinstance(self_id, set | frozenset):
+        return mri.lower() in self_id
+    return mri == self_id
+
+
+class UsageError(ValueError):
+    """Erro de uso (ex.: seletor de conta inválido): o CLI mostra só a mensagem."""
+
+
 class Sender(TypedDict):
     # `mri` é o id do remetente no provider. O nome vem do Teams (Message Resource
     # Identifier) e é mantido por compatibilidade com consumidores existentes.
@@ -65,6 +78,7 @@ class Conversation(TypedDict):
     memberCount: NotRequired[int | None]
     createdAt: NotRequired[str | None]
     lastMessageTime: NotRequired[str | None]
+    account: NotRequired[str]  # conta da conversa, quando a Session cobre várias (Mail)
 
 
 # `from` é palavra reservada em Python; o schema funcional permite usá-la como chave.

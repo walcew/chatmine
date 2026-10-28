@@ -25,6 +25,7 @@ from urllib.parse import unquote
 
 from bs4 import BeautifulSoup
 
+# Reaproveita o conversor do Teams (o tratamento de <at> não afeta e-mail).
 from ..teams.normalize import html_to_text
 
 # Aponta para o equivalente a ~/Library/Mail; o Accounts4.sqlite é lido de ../Accounts.
@@ -37,7 +38,7 @@ FDA_HINT = (
 
 # Nome da pasta (último segmento, NFC, casefold) -> pasta ignorada / pasta de enviados.
 EXCLUDED_MAILBOXES = {
-    "lixeira", "trash", "deleted items", "deleted messages", "itens excluídos",
+    "lixeira", "trash", "bin", "deleted items", "deleted messages", "itens excluídos",
     "spam", "junk", "junk e-mail", "junk email", "lixo eletrônico",
 }
 SENT_MAILBOXES = {
@@ -49,14 +50,17 @@ SUBJECT_PREFIX_RE = re.compile(r"^(?:\s*(?:re|res|fw|fwd|enc)\s*:)+\s*", re.I)
 
 RECIPIENT_TO, RECIPIENT_CC = 0, 1
 
-# Início do histórico citado: "Em ... escreveu:" / "On ... wrote:" (pode quebrar linha), a linha
-# "Nome <email> escreveu:" sem o "Em" ou o bloco "De:/From: ... Enviado:/Sent:" do Outlook
-# (Windows PT usa "Enviada em:"; o Outlook Mac usa "Data:/Date:").
-# Marcadores só em PT e EN.
+# Início do histórico citado: a linha "... escreveu:" / "... wrote:", a atribuição
+# "Em ... / ... escreveu:" quebrada em duas linhas (a segunda não vazia e sem outro "Em"/"On",
+# para "Em anexo..." no texto novo não virar citação) ou o bloco "De:/From: ... Enviado:/Sent:
+# ... Para:/Assunto:" do Outlook (Windows PT usa "Enviada em:"; o Outlook Mac usa
+# "Data:/Date:"). Marcadores só em PT e EN.
 QUOTE_START_RE = re.compile(
-    r"^(?:(?:(?:Em|On) .{0,300}?|[^\n]{0,300}?)(?:escreveu|wrote):[ \t]*$"
-    r"|(?:De|From):(?:[^\n]*\n){0,3}?[^\n]*?\b(?:Enviad[oa](?: em)?|Sent|Data|Date):)",
-    re.M | re.S,
+    r"^(?:(?:Em|On) [^\n]{0,300}\n(?!(?:Em|On) )[^\n]{0,300}?(?:escreveu|wrote):[ \t]*$"
+    r"|[^\n]{0,300}?(?:escreveu|wrote):[ \t]*$"
+    r"|(?:De|From):(?:[^\n]*\n){0,3}?[^\n]*?\b(?:Enviad[oa](?: em)?|Sent|Data|Date):"
+    r"(?=(?:[^\n]*\n){0,3}?(?:Para|To|Assunto|Subject):))",
+    re.M,
 )
 
 
@@ -181,21 +185,21 @@ def attachments(
     parts = {p.get_filename(): p for p in msg.walk() if p.get_filename()} if msg else {}
     out = []
     for r in rows:
-        part = parts.get(r["name"])
+        part = parts.get(r["name"]) if r["name"] else None
         if part is not None:
             cid = (part["Content-ID"] or "").strip().strip("<>")
             if part.get_content_disposition() == "inline" or (cid and f"cid:{cid}" in html):
                 continue
         file = (
             emlx.parent.parent / "Attachments" / str(r["message"]) / r["attachment_id"] / r["name"]
-            if emlx
+            if emlx and r["name"] and r["attachment_id"]
             else None
         )
         found = bool(file and file.exists())
         out.append({
             "name": r["name"],
             "contentType": part.get_content_type() if part is not None
-            else mimetypes.guess_type(r["name"])[0],
+            else mimetypes.guess_type(r["name"] or "")[0],
             "contentUrl": file.as_uri() if found else None,
             "path": str(file) if found else None,
             "url": None,
@@ -219,7 +223,7 @@ def sender(address: str | None, comment: str | None) -> dict[str, Any]:
     return {"mri": address, "displayName": comment or address or ""}
 
 
-def account_labels(data: Path) -> dict[str, str]:
+def account_labels() -> dict[str, str]:
     """UUID da conta -> primeiro e-mail achado na conta ou na conta-mãe (Gmail vem sem)."""
     db = mail_root().parent / "Accounts" / "Accounts4.sqlite"
     if not db.exists():
@@ -314,7 +318,10 @@ def dedup(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
     seen: set[tuple[str, int]] = set()
     out = []
     for r in rows:
-        key = ("m", r["message_id"]) if r["message_id"] else ("g", r["global_message_id"])
+        if r["message_id"]:
+            key = ("m", r["message_id"])
+        else:  # sem os dois ids, cada linha é uma mensagem
+            key = ("g", r["global_message_id"]) if r["global_message_id"] else ("r", r["ROWID"])
         if key not in seen:
             seen.add(key)
             out.append(r)

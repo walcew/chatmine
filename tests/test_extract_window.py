@@ -74,3 +74,22 @@ def test_no_flags_keeps_seven_days(fake, tmp_path):
     main(["fake-window", "extract", "--out", str(tmp_path)])
     got = datetime.fromtimestamp(fake.start_ms / 1000, tz=UTC)
     assert abs((before - timedelta(days=7)) - got) < timedelta(seconds=5)
+
+
+def test_window_drops_messages_before_since_and_empty_conversations(fake, tmp_path, monkeypatch):
+    monkeypatch.setenv("TZ", "UTC")
+    import json
+    import time
+
+    time.tzset()
+    # o provider pode devolver mensagens com composetime anterior ao início (Mail: date_sent)
+    main(["fake-window", "extract", "--since", "2026-10-02", "--until", "2026-10-02",
+          "--out", str(tmp_path)])
+    assert _ids(tmp_path) == ["1", "3"]
+    # conversa só com atividade depois do fim da janela some do conversations.json
+    dated = _Fake.iter_messages
+    fake.iter_messages = lambda *a, **k: (m for m in dated(fake, *a, **k) if m["composetime"])
+    rc = main(["fake-window", "extract", "--since", "2026-09-01", "--until", "2026-09-02",
+               "--out", str(tmp_path)])
+    assert rc == 3
+    assert json.loads((tmp_path / "conversations.json").read_text()) == []

@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import core
-from .core import Attachment, Conversation, Message, Sender, Session
+from .core import Attachment, Conversation, Message, Sender, Session, is_self
 from .window import resolve_window
 
 
@@ -39,13 +39,6 @@ def _who(s: Sender) -> str:
     return name or mri
 
 
-def _is_self(s: Sender, self_id: Any) -> bool:
-    # O Mail usa um conjunto de endereços como self_id.
-    if isinstance(self_id, set | frozenset):
-        return s.get("mri") in self_id
-    return bool(self_id) and s.get("mri") == self_id
-
-
 def _attachment(a: Attachment) -> dict[str, Any]:
     return {
         "name": a.get("name"),
@@ -61,7 +54,7 @@ def _short(m: Message, self_id: Any) -> dict[str, Any]:
         "id": m.get("id"),
         "time": _iso(_time(m.get("composetime"))),
         "from": _who(m["from"]),
-        "isSelf": _is_self(m["from"], self_id),
+        "isSelf": is_self(self_id, m["from"].get("mri")),
         "text": m.get("contentText") or "",
     }
     if m.get("attachments"):
@@ -74,7 +67,7 @@ def _result(
 ) -> dict[str, Any]:
     out = {
         "provider": provider,
-        "account": session.account.label,
+        "account": conv.get("account") or session.account.label,
         "conversation": {
             "id": conv["id"],
             "title": conv.get("topic") or m.get("conversationTopic") or conv["id"],
