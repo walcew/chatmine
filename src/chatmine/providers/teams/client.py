@@ -48,6 +48,13 @@ class ChatSvcClient:
             }
         )
 
+    def download(self, url: str) -> tuple[bytes, str | None]:
+        """Baixa um objeto (ex.: imagem AMS) com o skypetoken da sessão."""
+        resp = self._session.get(url, headers={"Accept": "*/*"}, timeout=self.timeout)
+        if not resp.ok:
+            raise ChatSvcError(f"{resp.status_code} em {url}")
+        return resp.content, resp.headers.get("Content-Type")
+
     def get(self, path_or_url: str, params: dict[str, Any] | None = None) -> dict:
         url = path_or_url if path_or_url.startswith("http") else urljoin(
             self.base, path_or_url.lstrip("/")

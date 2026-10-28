@@ -50,6 +50,7 @@ class Attachment(TypedDict):
     path: NotRequired[str | None]
     url: NotRequired[str | None]
     available: NotRequired[bool]
+    objectId: NotRequired[str]  # Teams: id AMS da imagem baixável; some em links de SharePoint
 
 
 class Reaction(TypedDict):

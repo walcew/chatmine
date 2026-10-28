@@ -85,3 +85,34 @@ def test_parse_from_variants():
 def test_html_to_text_collapses_whitespace():
     assert html_to_text("<div>a   b</div>") == "a b"
     assert html_to_text(None) == ""
+
+
+AMS_URL = "https://eu-api.asm.skype.com/v1/objects/0-neu-d4-abc123/views/imgo"
+
+
+def test_inline_ams_image_becomes_attachment_with_object_id():
+    html = (
+        f'<div>veja<img itemtype="http://schema.skype.com/AMSImage" src="{AMS_URL}" alt="imagem">'
+        '<img itemtype="http://schema.skype.com/Emoji" src="https://x/emoji.png"></div>'
+    )
+    out = normalize_message({"content": html}, conv_topic="")
+    assert out["attachments"] == [
+        {
+            "name": "imagem", "contentType": None, "contentUrl": AMS_URL, "path": None,
+            "url": AMS_URL, "available": False, "objectId": "0-neu-d4-abc123",
+        }
+    ]
+
+
+def test_ams_attachment_is_classified_and_sharepoint_is_not():
+    raw = {
+        "attachments": [
+            {"name": "print.png", "contentType": "image/png", "contentUrl": AMS_URL},
+            {"name": "doc.pdf", "contentType": "application/pdf",
+             "contentUrl": "https://x.sharepoint.com/doc.pdf"},
+        ]
+    }
+    ams, sharepoint = normalize_message(raw, conv_topic="")["attachments"]
+    assert ams["objectId"] == "0-neu-d4-abc123"
+    assert "objectId" not in sharepoint
+    assert sharepoint["available"] is False

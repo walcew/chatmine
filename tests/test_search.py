@@ -272,3 +272,43 @@ def test_all_providers_failing_exits_nonzero(register, capsys):
 def test_account_and_profile_are_passed_through(fake, capsys):
     _search(capsys, "x", "--provider", "fake-a", "--account", "acme", "--profile", "tfw")
     assert fake.calls == [("auth", "acme", "tfw")]
+
+
+class _Media(_Fake):
+    """Provider que baixa anexos só quando o search pede, depois do --limit."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fetched = []
+
+    def fetch_attachments(self, session, attachments):
+        self.fetched += [a["name"] for a in attachments]
+        return [{**a, "path": f"/cache/{a['name']}", "available": True} for a in attachments]
+
+
+def test_attachments_are_fetched_only_for_results_inside_the_limit(register, capsys):
+    img = {"name": "img", "contentType": None, "contentUrl": "https://ams/x", "path": None,
+           "url": "https://ams/x", "available": False}
+    msgs = {"g1": [
+        _msg("g2", GROUP, "2026-10-10T12:00:00.000Z", "novo",
+             attachments=[{**img, "name": "novo"}]),
+        _msg("g1", GROUP, "2026-10-10T11:00:00.000Z", "velho",
+             attachments=[{**img, "name": "velho"}]),
+    ]}
+    p = register(_Media("fake-m", [GROUP], msgs))
+    _, env, _ = _search(capsys, "o", "--provider", "fake-m", *WINDOW, "--limit", "1")
+    assert p.fetched == ["novo"]
+    assert env["results"][0]["attachments"][0]["path"] == "/cache/novo"
+    assert env["results"][0]["attachments"][0]["available"] is True
+
+
+def test_fetch_failure_keeps_the_search(register, capsys):
+    class Boom(_Media):
+        def fetch_attachments(self, session, attachments):
+            raise RuntimeError("rede caiu")
+
+    msgs = {"g1": [_msg("g1", GROUP, "2026-10-10T11:00:00.000Z", "oi", attachments=[PDF])]}
+    register(Boom("fake-b", [GROUP], msgs))
+    rc, env, _ = _search(capsys, "oi", "--provider", "fake-b", *WINDOW)
+    assert rc == 0 and env["errors"] == []
+    assert env["results"][0]["attachments"][0]["path"] == "/tmp/proposta-final.pdf"

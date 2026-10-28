@@ -131,8 +131,22 @@ def _search_provider(name: str, args: Any, start: datetime, end: datetime) -> li
                 continue
             n = args.context
             context = msgs[max(0, i - n) : i] + msgs[i + 1 : i + 1 + n] if n else []
-            found.append((_time(m.get("composetime")), _result(name, session, conv, m, context)))
+            found.append(
+                (_time(m.get("composetime")), _result(name, session, conv, m, context), session, m)
+            )
     return found
+
+
+def _fetch_attachments(result: dict[str, Any], session: Session, m: Message) -> None:
+    """Deixa o provider baixar os anexos do resultado, se ele souber; falha não aborta."""
+    name = result["provider"]
+    fetch = getattr(core.get(name), "fetch_attachments", None)
+    if not (fetch and m.get("attachments")):
+        return
+    try:
+        result["attachments"] = [_attachment(a) for a in fetch(session, m["attachments"])]
+    except Exception as e:
+        print(f"[{name}] anexos não baixados: {e}", file=sys.stderr)
 
 
 def _hint(e: Exception) -> str:
@@ -169,6 +183,9 @@ def run_search(args: Any) -> int:
 
     # Mais novo primeiro; mensagens sem hora vão para o fim.
     found.sort(key=lambda f: f[0] or datetime.min.replace(tzinfo=UTC), reverse=True)
+    kept = found[: args.limit]
+    for _, result, session, m in kept:
+        _fetch_attachments(result, session, m)
     envelope = {
         "query": args.query,
         "window": {"since": _iso(start), "until": _iso(end)},
@@ -176,7 +193,7 @@ def run_search(args: Any) -> int:
         "total": len(found),
         "truncated": len(found) > args.limit,
         "errors": errors,
-        "results": [r for _, r in found[: args.limit]],
+        "results": [r for _, r, _, _ in kept],
     }
     json.dump(envelope, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
