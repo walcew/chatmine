@@ -71,3 +71,12 @@ def test_install_updates_manual_copy_and_is_idempotent(home):
     skill.install(home)
     skill.install(home)
     assert (old / "SKILL.md").read_text() == skill.skill_text()
+
+
+def test_skill_documents_mail_and_search():
+    text = skill.skill_text()
+    description = text.splitlines()[2]
+    assert "Apple Mail" in description and "search" in description
+    for topic in ("Full Disk Access", "--include-bulk", "--account", "truncated", "available"):
+        assert topic in text, f"skill não cobre {topic}"
+    assert "chatmine mail accounts" in text and "chatmine mail extract" in text

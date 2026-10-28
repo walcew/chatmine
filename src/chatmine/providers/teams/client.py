@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 import requests
 
 from .auth import USER_AGENT, TeamsTokens
+from .media import ams_object_id
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,21 @@ class ChatSvcClient:
                 "User-Agent": USER_AGENT,
             }
         )
+
+    def download(self, url: str) -> tuple[bytes, str | None]:
+        """Baixa uma imagem AMS com o skypetoken da sessão.
+
+        A URL vem do conteúdo da mensagem: só hosts AMS recebem o token, e redirects
+        não são seguidos (o requests repassaria o header a outro host).
+        """
+        if not ams_object_id(url):
+            raise ChatSvcError(f"refusing to send token to non-AMS url: {url[:120]}")
+        resp = self._session.get(
+            url, headers={"Accept": "*/*"}, timeout=self.timeout, allow_redirects=False
+        )
+        if resp.status_code != 200:
+            raise ChatSvcError(f"{resp.status_code} em {url}")
+        return resp.content, resp.headers.get("Content-Type")
 
     def get(self, path_or_url: str, params: dict[str, Any] | None = None) -> dict:
         url = path_or_url if path_or_url.startswith("http") else urljoin(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -8,6 +9,8 @@ from bs4 import BeautifulSoup
 from ...core.models import Conversation, Message
 
 MRI_RE = re.compile(r"(?:8:)?(orgid:[0-9a-f-]+|live:[^;]+)", re.I)
+# Imagens coladas no chat ficam no AMS; o download (e o host aceito) é do media.py.
+AMS_IMAGE = "http://schema.skype.com/AMSImage"
 
 
 def html_to_text(html: str | None) -> str:
@@ -34,6 +37,39 @@ def parse_from(raw: str | None) -> str | None:
         return None
     mri = m.group(1)
     return f"8:{mri}" if not mri.startswith("8:") else mri
+
+
+def _attachment(name: str | None, content_type: str | None, url: str | None) -> dict[str, Any]:
+    return {
+        "name": name,
+        "contentType": content_type,
+        "contentUrl": url,
+        "path": None,
+        "url": url,
+        "available": False,  # o download fica para o search
+    }
+
+
+def _attachments(msg: dict[str, Any], content_html: str) -> list[dict[str, Any]]:
+    out = [
+        _attachment(a.get("name"), a.get("contentType"), a.get("contentUrl"))
+        for a in msg.get("attachments") or []
+    ]
+    # Arquivos do SharePoint/OneDrive vêm em `properties.files`, uma string JSON.
+    try:
+        files = json.loads((msg.get("properties") or {}).get("files") or "[]")
+    except (TypeError, ValueError):
+        files = []
+    for f in files if isinstance(files, list) else []:
+        if not isinstance(f, dict):
+            continue
+        info = f.get("fileInfo") or {}
+        url = f.get("objectUrl") or info.get("fileUrl") or info.get("shareUrl")
+        out.append(_attachment(f.get("fileName") or f.get("title"), None, url))
+    if content_html:
+        for img in BeautifulSoup(content_html, "html.parser").find_all("img", itemtype=AMS_IMAGE):
+            out.append(_attachment(img.get("alt"), None, img.get("src")))
+    return out
 
 
 def normalize_conversation(conv: dict[str, Any]) -> Conversation:
@@ -88,14 +124,7 @@ def normalize_message(
         "isEdited": bool(props.get("edittime")),
         "parentMessageId": props.get("parentmessageid"),
         "reactions": reactions,
-        "attachments": [
-            {
-                "name": a.get("name"),
-                "contentType": a.get("contentType"),
-                "contentUrl": a.get("contentUrl"),
-            }
-            for a in (msg.get("attachments") or [])
-        ],
+        "attachments": _attachments(msg, content_html),
     }
     if include_raw:
         out["raw"] = msg

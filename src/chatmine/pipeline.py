@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import sys
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -14,9 +15,33 @@ from rich.progress import (
 )
 
 from . import core
+from .core import Conversation, Message
 from .output import write_json, write_jsonl, write_summary
+from .window import resolve_window
 
 console = Console()
+
+
+def one_on_one_title(
+    conv: Conversation, msgs: list[Message], self_id: str | frozenset[str] | None
+) -> str | None:
+    """Chat 1:1 sem título: nome do primeiro interlocutor que não é o usuário."""
+    if conv["type"] != "oneOnOne" or conv["topic"]:
+        return None
+    return next(
+        (
+            m["from"]["displayName"]
+            for m in msgs
+            if m["from"]["mri"]
+            and not core.is_self(self_id, m["from"]["mri"])
+            and m["from"]["displayName"]
+        ),
+        None,
+    )
+
+
+def _outside(composetime: str | None, start: datetime, end: datetime) -> bool:
+    return bool(composetime) and not start <= datetime.fromisoformat(composetime) <= end
 
 
 def run_extract(
@@ -24,14 +49,22 @@ def run_extract(
     *,
     selector: str | None,
     profile: str | None,
-    days: float,
+    days: float | None,
+    since: str | None = None,
+    until: str | None = None,
     out_dir: str,
     include_system: bool,
     include_raw: bool,
+    include_bulk: bool = False,
 ) -> int:
     provider = core.get(provider_name)
-    session = provider.authenticate(selector, profile)
     now = datetime.now(tz=UTC)
+    try:
+        window_start, window_end = resolve_window(since, until, days, now)
+    except ValueError as e:
+        print(f"Erro: {e}", file=sys.stderr)
+        return 2
+    session = provider.authenticate(selector, profile)
 
     ttl = session.expires_at - now
     if ttl.total_seconds() < 60:
@@ -42,14 +75,13 @@ def run_extract(
         return 2
     console.print(f"[green]Sessão ok[/] — {session.label} (expira em {ttl})")
 
-    window_start = now - timedelta(days=days)
     start_ms = int(window_start.timestamp() * 1000)
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
     console.print(f"Listando conversas desde {window_start.isoformat()}…")
-    conversations = provider.list_conversations(session, start_ms)
+    conversations = provider.list_conversations(session, start_ms, include_bulk=include_bulk)
     console.print(f"  {len(conversations)} conversas")
 
     self_id = session.self_id
@@ -70,7 +102,7 @@ def run_extract(
             topic = conv.get("topic") or cid
             prog.update(task, description=f"  {topic[:40]}")
             count = 0
-            counterpart_name: str | None = None
+            conv_msgs: list[Message] = []
             try:
                 for norm in provider.iter_messages(
                     session,
@@ -79,32 +111,30 @@ def run_extract(
                     include_system=include_system,
                     include_raw=include_raw,
                 ):
+                    # O provider só recebe o início (e o Mail filtra pela data de
+                    # recebimento); o corte exato da janela é aqui.
+                    if _outside(norm.get("composetime"), window_start, window_end):
+                        continue
                     norm["conversationId"] = cid
                     all_messages.append(norm)
                     count += 1
                     sender = norm["from"]["displayName"] or norm["from"]["mri"] or "?"
                     sender_counts[sender] += 1
-                    if (
-                        conv["type"] == "oneOnOne"
-                        and counterpart_name is None
-                        and norm["from"]["mri"]
-                        and norm["from"]["mri"] != self_id
-                        and norm["from"]["displayName"]
-                    ):
-                        counterpart_name = norm["from"]["displayName"]
+                    conv_msgs.append(norm)
             except RuntimeError as e:
                 # Conversa inacessível (ex.: 403 em reunião da qual não somos
                 # membros do roster) — pula sem abortar a extração.
                 console.print(f"  [yellow]pulando {topic[:40]}: {str(e)[:80]}[/yellow]")
-            # Chat 1:1 sem título: usa o nome do interlocutor.
-            if conv["type"] == "oneOnOne" and counterpart_name and not conv["topic"]:
-                conv["topic"] = counterpart_name
-                for m in all_messages:
-                    if m["conversationId"] == cid and not m["conversationTopic"]:
-                        m["conversationTopic"] = counterpart_name
+            if name := one_on_one_title(conv, conv_msgs, self_id):
+                conv["topic"] = name
+                for m in conv_msgs:
+                    if not m["conversationTopic"]:
+                        m["conversationTopic"] = name
             msg_counts[cid] = count
             prog.advance(task)
 
+    if until:  # conversas só com atividade depois do fim da janela
+        conversations = [c for c in conversations if msg_counts.get(c["id"])]
     all_messages.sort(key=lambda m: (m.get("composetime") or ""), reverse=True)
     write_jsonl(out / "messages.jsonl", all_messages)
     write_json(out / "conversations.json", conversations)
@@ -113,7 +143,7 @@ def run_extract(
         provider=provider_name,
         account_label=session.account.label,
         window_start=window_start,
-        window_end=now,
+        window_end=window_end,
         conversations=conversations,
         message_counts=msg_counts,
         sender_counts=sender_counts,

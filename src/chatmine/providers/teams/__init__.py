@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from ...core.models import Account, Conversation, Message, Session
+from ...core.models import Account, Attachment, Conversation, Message, Session
 from ...core.registry import register
 from .auth import discover_tenants, get_tokens
 from .client import ChatSvcClient, iter_raw_messages, list_recent_conversations
+from .media import cache_attachment
 from .normalize import normalize_conversation, normalize_message
 
 
@@ -41,7 +42,9 @@ class TeamsProvider:
             raw=ChatSvcClient(tokens),  # client chatsvc vivo desta sessão
         )
 
-    def list_conversations(self, session: Session, start_time_ms: int) -> list[Conversation]:
+    def list_conversations(
+        self, session: Session, start_time_ms: int, *, include_bulk: bool = False
+    ) -> list[Conversation]:
         raw = list_recent_conversations(session.raw, start_time_ms)
         return [normalize_conversation(c) for c in raw]
 
@@ -62,6 +65,12 @@ class TeamsProvider:
             include_system=include_system,
         ):
             yield normalize_message(m, topic, include_raw=include_raw)
+
+    def fetch_attachments(
+        self, session: Session, attachments: list[Attachment]
+    ) -> list[Attachment]:
+        """Baixa as imagens AMS para o cache; SharePoint/OneDrive seguem como link."""
+        return [cache_attachment(a, session.raw.download) for a in attachments]
 
 
 register(TeamsProvider())

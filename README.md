@@ -47,6 +47,9 @@ chatmine teams extract --account contoso.com --days 7 --out ./out
 chatmine teams extract --days 7 --raw      # inclui o JSON cru de cada mensagem
 chatmine whatsapp extract --days 7 --out ./out
 chatmine whatsapp extract --profile business --days 7   # WhatsApp Business
+chatmine teams extract --since 2026-10-01 --until 2026-10-02   # janela fixa (fuso local; --until só data vai até 23:59:59)
+chatmine search "cotação" --days 3                # busca em todos os providers; JSON no stdout
+chatmine search "cotação" --days 3 --provider teams --from ana --context 1
 ```
 
 `--account` aceita tenant-id (ou prefixo), UPN ou domínio. Sem ele, usa a conta com a

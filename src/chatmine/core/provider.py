@@ -27,8 +27,14 @@ class Provider(Protocol):
         """Resolve o seletor numa Account e devolve a Session viva dela."""
         ...
 
-    def list_conversations(self, session: Session, start_time_ms: int) -> list[Conversation]:
-        """Conversas com atividade a partir de `start_time_ms` (epoch ms)."""
+    def list_conversations(
+        self, session: Session, start_time_ms: int, *, include_bulk: bool = False
+    ) -> list[Conversation]:
+        """Conversas com atividade a partir de `start_time_ms` (epoch ms).
+
+        `include_bulk` inclui newsletters e e-mails em massa; providers sem esse
+        conceito ignoram.
+        """
         ...
 
     def iter_messages(
