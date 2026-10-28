@@ -90,6 +90,10 @@ OUTLOOK_EN = (
     "From: Carlos <carlos@ext.example>\nSent: Monday, October 5, 2026 10:00 AM\n"
     "To: Ana\nSubject: Plan\n\nOld text."
 )
+EMPTY_PLAIN = (
+    "--B\r\nContent-Type: text/plain\r\n\r\n\r\n"
+    "--B\r\nContent-Type: text/html\r\n\r\n<p>Novo.</p>\r\n--B--\r\n"
+)
 HTML_QUOTED = "<p>Novo.</p><blockquote><p>Texto antigo.</p></blockquote>"
 # conversa 800: um estilo de citação por mensagem, cada uma com o texto novo "Novo."
 QUOTED = {
@@ -102,6 +106,13 @@ QUOTED = {
     2008: "Novo.\n\nCarlos <mailto:c@ext.example>> escreveu:\n\nTexto antigo.",  # sem "Em"
     # CRLF, como nos .emlx reais
     2009: "Novo.\r\n\r\n5 out. 2026, Carlos <c@ext.example> escreveu:\r\n\r\nTexto antigo.",
+    # Outlook Windows PT ("Enviada em:") e Outlook Mac PT/EN ("Data:"/"Date:")
+    2010: "Novo.\n\nDe: Carlos <c@ext.example>\nEnviada em: segunda-feira, 5 de out. 10:00\n"
+    "Para: Ana\nAssunto: Plano\n\nTexto antigo.",
+    2011: "Novo.\n\nDe: Carlos <c@ext.example>\nData: seg., 5 de out. de 2026 10:00\n"
+    "Para: Ana\nAssunto: Plano\n\nTexto antigo.",
+    2012: "Novo.\n\nFrom: Carlos <c@ext.example>\nDate: Monday, October 5, 2026 at 10:00 AM\n"
+    "To: Ana\nSubject: Plan\n\nOld text.",
 }
 SIMPLE = b"From: x\r\nSubject: s\r\nContent-Type: text/plain\r\n\r\ncorpo\r\n"
 
@@ -146,6 +157,11 @@ MESSAGES = [
     (
         2007, 1, 800, 2007, 2, None, "Plano", RECENT + 2007, [1], [],
         ("Caixa de Entrada", reply(HTML_QUOTED, "text/html")),
+    ),
+    # text/plain vazio ao lado do HTML: o texto vem do HTML
+    (
+        2013, 1, 800, 2013, 2, None, "Plano", RECENT + 2013, [1], [],
+        ("Caixa de Entrada", reply(EMPTY_PLAIN, 'multipart/alternative; boundary="B"')),
     ),
     (7001, 8, 700, 71, 6, None, "Oi", RECENT, [2], [], ("Sent", SIMPLE)),
 ]
@@ -280,7 +296,7 @@ def test_mail_listed_in_providers(capsys):
 def test_quoted_history_is_cut_from_text_but_kept_in_html(library):
     session = MailProvider().authenticate()
     by_id = {m["id"]: m for m in messages(session, "800")}
-    for rowid in ("2001", "2002", "2003", "2004", "2005", "2007", "2008", "2009"):
+    for rowid in [str(r) for r in QUOTED if r != 2006] + ["2007", "2013"]:
         assert by_id[rowid]["contentText"] == "Novo.", rowid
     assert by_id["2007"]["contentHtml"].count("Texto antigo.") == 1
     # tudo citado: mantém o corpo inteiro

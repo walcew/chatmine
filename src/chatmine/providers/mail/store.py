@@ -49,11 +49,12 @@ SUBJECT_PREFIX_RE = re.compile(r"^(?:\s*(?:re|res|fw|fwd|enc)\s*:)+\s*", re.I)
 RECIPIENT_TO, RECIPIENT_CC = 0, 1
 
 # Início do histórico citado: "Em ... escreveu:" / "On ... wrote:" (pode quebrar linha), a linha
-# "Nome <email> escreveu:" sem o "Em" ou o bloco "De:/From: ... Enviado:/Sent:" do Outlook.
+# "Nome <email> escreveu:" sem o "Em" ou o bloco "De:/From: ... Enviado:/Sent:" do Outlook
+# (Windows PT usa "Enviada em:"; o Outlook Mac usa "Data:/Date:").
 # Marcadores só em PT e EN.
 QUOTE_START_RE = re.compile(
     r"^(?:(?:(?:Em|On) .{0,300}?|[^\n]{0,300}?)(?:escreveu|wrote):[ \t]*$"
-    r"|(?:De|From):(?:[^\n]*\n){0,3}?[^\n]*?\b(?:Enviado|Sent):)",
+    r"|(?:De|From):(?:[^\n]*\n){0,3}?[^\n]*?\b(?:Enviad[oa](?: em)?|Sent|Data|Date):)",
     re.M | re.S,
 )
 
@@ -153,15 +154,15 @@ def _html_without_quotes(html: str) -> str:
 
 
 def bodies(msg: EmailMessage) -> tuple[str, str]:
-    """(texto sem citações, html completo). O texto vem do text/plain ou, na falta dele, do HTML.
+    """(texto sem citações, html completo). O texto vem do text/plain ou, na falta dele (ou se
+    vier vazio), do HTML.
 
     Se o corte esvaziar o texto, vale o corpo inteiro.
     """
     plain = msg.get_body(("plain",))
     html_part = msg.get_body(("html",))
     html = _part_text(html_part) if html_part else ""
-    if plain:
-        full = _part_text(plain).strip()
+    if plain and (full := _part_text(plain).strip()):
         return strip_quoted(full) or full, html
     return strip_quoted(html_to_text(_html_without_quotes(html))) or html_to_text(html), html
 
