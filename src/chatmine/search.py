@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import core
-from .core import Attachment, Conversation, Message, Sender, Session
+from .core import Attachment, Conversation, Message, Sender, Session, is_self
 from .pipeline import one_on_one_title
 from .window import resolve_window
 
@@ -43,10 +43,6 @@ def _who(s: Sender) -> str:
     return name or mri
 
 
-def _is_self(s: Sender, self_id: str | None) -> bool:
-    return bool(self_id) and s.get("mri") == self_id
-
-
 def _attachment(a: Attachment) -> dict[str, Any]:
     return {
         "name": a.get("name"),
@@ -62,7 +58,7 @@ def _short(m: Message, self_id: str | None) -> dict[str, Any]:
         "id": m.get("id"),
         "time": _iso(_time(m.get("composetime"))),
         "from": _who(m["from"]),
-        "isSelf": _is_self(m["from"], self_id),
+        "isSelf": is_self(self_id, m["from"].get("mri")),
         "text": m.get("contentText") or "",
     }
     if m.get("attachments"):
@@ -75,7 +71,7 @@ def _result(
 ) -> dict[str, Any]:
     out = {
         "provider": provider,
-        "account": session.account.label,
+        "account": conv.get("account") or session.account.label,
         "conversation": {
             "id": conv["id"],
             "title": conv.get("topic") or m.get("conversationTopic") or conv["id"],
@@ -120,7 +116,7 @@ def _search_provider(
         raise RuntimeError("session expired")
     start_ms = int(start.timestamp() * 1000)
     found: list[Found] = []
-    for conv in provider.list_conversations(session, start_ms):
+    for conv in provider.list_conversations(session, start_ms, include_bulk=args.include_bulk):
         try:
             msgs = [
                 m

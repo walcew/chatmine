@@ -22,7 +22,9 @@ from .window import resolve_window
 console = Console()
 
 
-def one_on_one_title(conv: Conversation, msgs: list[Message], self_id: str | None) -> str | None:
+def one_on_one_title(
+    conv: Conversation, msgs: list[Message], self_id: str | frozenset[str] | None
+) -> str | None:
     """Chat 1:1 sem título: nome do primeiro interlocutor que não é o usuário."""
     if conv["type"] != "oneOnOne" or conv["topic"]:
         return None
@@ -30,14 +32,16 @@ def one_on_one_title(conv: Conversation, msgs: list[Message], self_id: str | Non
         (
             m["from"]["displayName"]
             for m in msgs
-            if m["from"]["mri"] and m["from"]["mri"] != self_id and m["from"]["displayName"]
+            if m["from"]["mri"]
+            and not core.is_self(self_id, m["from"]["mri"])
+            and m["from"]["displayName"]
         ),
         None,
     )
 
 
-def _after(composetime: str | None, limit: datetime) -> bool:
-    return bool(composetime) and datetime.fromisoformat(composetime) > limit
+def _outside(composetime: str | None, start: datetime, end: datetime) -> bool:
+    return bool(composetime) and not start <= datetime.fromisoformat(composetime) <= end
 
 
 def run_extract(
@@ -51,6 +55,7 @@ def run_extract(
     out_dir: str,
     include_system: bool,
     include_raw: bool,
+    include_bulk: bool = False,
 ) -> int:
     provider = core.get(provider_name)
     now = datetime.now(tz=UTC)
@@ -76,7 +81,7 @@ def run_extract(
     out.mkdir(parents=True, exist_ok=True)
 
     console.print(f"Listando conversas desde {window_start.isoformat()}…")
-    conversations = provider.list_conversations(session, start_ms)
+    conversations = provider.list_conversations(session, start_ms, include_bulk=include_bulk)
     console.print(f"  {len(conversations)} conversas")
 
     self_id = session.self_id
@@ -106,8 +111,9 @@ def run_extract(
                     include_system=include_system,
                     include_raw=include_raw,
                 ):
-                    # O provider só recebe o início; o corte por `until` é aqui.
-                    if until and _after(norm.get("composetime"), window_end):
+                    # O provider só recebe o início (e o Mail filtra pela data de
+                    # recebimento); o corte exato da janela é aqui.
+                    if _outside(norm.get("composetime"), window_start, window_end):
                         continue
                     norm["conversationId"] = cid
                     all_messages.append(norm)
@@ -127,6 +133,8 @@ def run_extract(
             msg_counts[cid] = count
             prog.advance(task)
 
+    if until:  # conversas só com atividade depois do fim da janela
+        conversations = [c for c in conversations if msg_counts.get(c["id"])]
     all_messages.sort(key=lambda m: (m.get("composetime") or ""), reverse=True)
     write_jsonl(out / "messages.jsonl", all_messages)
     write_json(out / "conversations.json", conversations)

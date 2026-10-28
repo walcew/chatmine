@@ -52,6 +52,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         out_dir=args.out,
         include_system=args.include_system,
         include_raw=args.raw,
+        include_bulk=args.include_bulk,
     )
 
 
@@ -76,6 +77,9 @@ def _add_search_command(sub: argparse._SubParsersAction) -> None:
     ps.add_argument("--conversation", default=None, help="Filtra pela conversa (id ou título)")
     ps.add_argument("--has-attachments", action="store_true", help="Só mensagens com anexo")
     ps.add_argument("--context", type=int, default=2, help="Vizinhas antes e depois (0 desliga)")
+    ps.add_argument(
+        "--include-bulk", action="store_true", help="Inclui newsletters e envios em massa (Mail)"
+    )
     ps.add_argument("--limit", type=int, default=50, help="Máximo de resultados (padrão 50)")
     ps.set_defaults(func=_cmd_search)
 
@@ -89,13 +93,18 @@ def _add_provider_commands(sub: argparse._SubParsersAction, name: str) -> None:
     pa.set_defaults(func=_cmd_accounts, provider=name)
 
     pe = psub.add_parser("extract", help="Extrai mensagens dos últimos N dias ou de uma janela")
-    pe.add_argument("--account", default=None, help="Seletor da conta (tenant-id, UPN ou domínio)")
+    pe.add_argument(
+        "--account", default=None, help="Seletor da conta (tenant-id, UPN, domínio ou e-mail)"
+    )
     pe.add_argument("--profile", default=None, help="Perfil/instalação (ex. Teams: tfw|tfl)")
     pe.add_argument("--days", type=float, default=None, help="Últimos N dias (padrão 7)")
     pe.add_argument("--since", default=None, help="Início, ISO 8601 (fuso local se omitido)")
     pe.add_argument("--until", default=None, help="Fim da janela; só data vale até o fim do dia")
     pe.add_argument("--out", default="./out")
     pe.add_argument("--include-system", action="store_true", help="Inclui mensagens de sistema")
+    pe.add_argument(
+        "--include-bulk", action="store_true", help="Inclui newsletters e envios em massa (Mail)"
+    )
     pe.add_argument("--raw", action="store_true", help="Inclui o JSON cru de cada mensagem")
     pe.set_defaults(func=_cmd_extract, provider=name)
 
@@ -131,7 +140,11 @@ def main(argv: list[str] | None = None) -> int:
         _add_provider_commands(sub, name)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (PermissionError, FileNotFoundError, core.UsageError) as e:
+        print(f"Erro: {e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

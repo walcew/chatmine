@@ -29,9 +29,23 @@ class Session:
 
     account: Account
     expires_at: datetime  # quando ESTA sessão morre (checagem de janela curta)
-    self_id: str | None  # id do "eu" no provider, p/ detectar mensagens próprias
+    # id do "eu" no provider, p/ detectar mensagens próprias; no Mail, o conjunto de endereços
+    self_id: str | frozenset[str] | None
     label: str  # rótulo humano p/ logs
     raw: Any = field(default=None, repr=False)  # bundle de credenciais do provider
+
+
+def is_self(self_id: str | frozenset[str] | None, mri: str | None) -> bool:
+    """Se `mri` é o próprio usuário. No Mail (conjunto em minúsculas) a caixa é ignorada."""
+    if not mri or not self_id:
+        return False
+    if isinstance(self_id, set | frozenset):
+        return mri.lower() in self_id
+    return mri == self_id
+
+
+class UsageError(ValueError):
+    """Erro de uso (ex.: seletor de conta inválido): o CLI mostra só a mensagem."""
 
 
 class Sender(TypedDict):
@@ -64,6 +78,7 @@ class Conversation(TypedDict):
     memberCount: NotRequired[int | None]
     createdAt: NotRequired[str | None]
     lastMessageTime: NotRequired[str | None]
+    account: NotRequired[str]  # conta da conversa, quando a Session cobre várias (Mail)
 
 
 # `from` é palavra reservada em Python; o schema funcional permite usá-la como chave.
@@ -75,6 +90,8 @@ Message = TypedDict(
         "conversationTopic": str,
         "composetime": str | None,
         "from": Sender,
+        "to": NotRequired[list[Sender]],  # destinatários, só em providers que os têm (Mail)
+        "cc": NotRequired[list[Sender]],
         "messagetype": str | None,
         "contentHtml": str,
         "contentText": str,

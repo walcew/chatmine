@@ -35,7 +35,8 @@ class _Fake:
         acc = Account(id="a", label=f"conta-{self.name}", expires_at=exp)
         return Session(account=acc, expires_at=exp, self_id="me@ex.com", label="conta")
 
-    def list_conversations(self, session, start_time_ms):
+    def list_conversations(self, session, start_time_ms, **kwargs):
+        self.calls.append(("list", kwargs))
         return self.convs
 
     def iter_messages(self, session, conv, start_time_ms, **kwargs):
@@ -271,7 +272,7 @@ def test_all_providers_failing_exits_nonzero(register, capsys):
 
 def test_account_and_profile_are_passed_through(fake, capsys):
     _search(capsys, "x", "--provider", "fake-a", "--account", "acme", "--profile", "tfw")
-    assert fake.calls == [("auth", "acme", "tfw")]
+    assert fake.calls[0] == ("auth", "acme", "tfw")
 
 
 class _Media(_Fake):
@@ -340,3 +341,10 @@ def test_negative_limit_or_context_is_usage_error(fake, capsys, flag):
     assert rc == 2 and env is None
     assert flag in err
     assert fake.calls == []
+
+
+def test_include_bulk_is_passed_to_providers(fake, capsys):
+    _search(capsys, "x", "--provider", "fake-a")
+    _search(capsys, "x", "--provider", "fake-a", "--include-bulk")
+    lists = [kw for call, kw, *_ in fake.calls if call == "list"]
+    assert lists == [{"include_bulk": False}, {"include_bulk": True}]
