@@ -53,6 +53,7 @@ def run_extract(
     console.print(f"  {len(conversations)} conversas")
 
     self_id = session.self_id
+    self_ids = self_id if isinstance(self_id, frozenset) else {self_id}
     all_messages: list[dict] = []
     msg_counts: dict[str, int] = {}
     sender_counts: Counter[str] = Counter()
@@ -88,7 +89,7 @@ def run_extract(
                         conv["type"] == "oneOnOne"
                         and counterpart_name is None
                         and norm["from"]["mri"]
-                        and norm["from"]["mri"] != self_id
+                        and norm["from"]["mri"] not in self_ids
                         and norm["from"]["displayName"]
                     ):
                         counterpart_name = norm["from"]["displayName"]

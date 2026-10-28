@@ -29,7 +29,8 @@ class Session:
 
     account: Account
     expires_at: datetime  # quando ESTA sessão morre (checagem de janela curta)
-    self_id: str | None  # id do "eu" no provider, p/ detectar mensagens próprias
+    # id do "eu" no provider, p/ detectar mensagens próprias; no Mail, o conjunto de endereços
+    self_id: str | frozenset[str] | None
     label: str  # rótulo humano p/ logs
     raw: Any = field(default=None, repr=False)  # bundle de credenciais do provider
 
@@ -70,6 +71,8 @@ Message = TypedDict(
         "conversationTopic": str,
         "composetime": str | None,
         "from": Sender,
+        "to": NotRequired[list[Sender]],  # destinatários, só em providers que os têm (Mail)
+        "cc": NotRequired[list[Sender]],
         "messagetype": str | None,
         "contentHtml": str,
         "contentText": str,

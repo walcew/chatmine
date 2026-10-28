@@ -62,7 +62,9 @@ def _add_provider_commands(sub: argparse._SubParsersAction, name: str) -> None:
     pa.set_defaults(func=_cmd_accounts, provider=name)
 
     pe = psub.add_parser("extract", help="Extrai mensagens dos últimos N dias")
-    pe.add_argument("--account", default=None, help="Seletor da conta (tenant-id, UPN ou domínio)")
+    pe.add_argument(
+        "--account", default=None, help="Seletor da conta (tenant-id, UPN, domínio ou e-mail)"
+    )
     pe.add_argument("--profile", default=None, help="Perfil/instalação (ex. Teams: tfw|tfl)")
     pe.add_argument("--days", type=float, default=7.0)
     pe.add_argument("--out", default="./out")
@@ -100,7 +102,11 @@ def main(argv: list[str] | None = None) -> int:
         _add_provider_commands(sub, name)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (PermissionError, FileNotFoundError, ValueError) as e:
+        print(f"Erro: {e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
