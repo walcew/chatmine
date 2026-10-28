@@ -9,12 +9,14 @@ from pathlib import Path
 from ...core.models import Account, Conversation, Message, Session
 from ...core.registry import register
 from .store import (
+    ATTACHMENTS_SQL,
     EXCLUDED_MAILBOXES,
     MESSAGES_SQL,
     RECIPIENT_CC,
     RECIPIENT_TO,
     RECIPIENTS_SQL,
     account_labels,
+    attachments,
     bodies,
     clean_subject,
     connect,
@@ -116,10 +118,13 @@ class MailProvider:
             for r in conn.execute(RECIPIENTS_SQL.format(where=where), params):
                 by_type = recipients.setdefault(r["message"], {})
                 by_type.setdefault(r["type"], []).append(sender(r["address"], r["comment"]))
-        return rows, recipients
+            files: dict[int, list] = {}
+            for r in conn.execute(ATTACHMENTS_SQL.format(where=where), params):
+                files.setdefault(r["message"], []).append(r)
+        return rows, recipients, files
 
     def list_conversations(self, session: Session, start_time_ms: int) -> list[Conversation]:
-        rows, recipients = self._rows(session.raw, start_time_ms)
+        rows, recipients, _ = self._rows(session.raw, start_time_ms)
         convs: dict[int, Conversation] = {}
         people: dict[int, set[str]] = {}
         for r in rows:  # mais nova primeiro: o assunto e a data vêm da última mensagem
@@ -154,11 +159,12 @@ class MailProvider:
     ) -> Iterator[Message]:
         # `include_system` não se aplica: e-mail não tem mensagens de sistema.
         store: MailStore = session.raw
-        rows, recipients = self._rows(store, start_time_ms, conversation["id"])
+        rows, recipients, files = self._rows(store, start_time_ms, conversation["id"])
         for r in rows:
             path = emlx_path(store.mailboxes[r["mailbox"]], r["ROWID"])
             # Sem .emlx (o Mail ainda não baixou a mensagem) sai só o envelope.
-            text, html = bodies(read_emlx(path)) if path else ("", "")
+            msg = read_emlx(path) if path else None
+            text, html = bodies(msg) if msg else ("", "")
             to = recipients.get(r["ROWID"], {})
             out: Message = {
                 "id": str(r["ROWID"]),
@@ -174,7 +180,7 @@ class MailProvider:
                 "isEdited": False,
                 "parentMessageId": None,
                 "reactions": [],
-                "attachments": [],
+                "attachments": attachments(files.get(r["ROWID"], []), msg, html, path),
             }
             if include_raw:
                 out["raw"] = {**dict(r), "path": str(path) if path else None}

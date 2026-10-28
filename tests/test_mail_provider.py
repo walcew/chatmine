@@ -31,6 +31,8 @@ CREATE TABLE recipients (ROWID INTEGER PRIMARY KEY, message INTEGER, address INT
 CREATE TABLE messages (ROWID INTEGER PRIMARY KEY, message_id INTEGER, global_message_id INTEGER,
   sender INTEGER, subject_prefix TEXT, subject INTEGER, date_sent INTEGER, date_received INTEGER,
   mailbox INTEGER, deleted INTEGER DEFAULT 0, conversation_id INTEGER);
+CREATE TABLE attachments (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, message INTEGER NOT NULL,
+  attachment_id TEXT, name TEXT);
 """
 
 ADDRESSES = {
@@ -114,6 +116,40 @@ QUOTED = {
     2012: "Novo.\n\nFrom: Carlos <c@ext.example>\nDate: Monday, October 5, 2026 at 10:00 AM\n"
     "To: Ana\nSubject: Plan\n\nOld text.",
 }
+
+
+def with_parts(*parts: str) -> bytes:
+    head = (
+        "From: Ana <ana@ext.example>\r\nSubject: Anexos\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="B"\r\n\r\n'
+        "--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+        '<p>Veja.</p><img src="cid:logo@x">\r\n'
+    )
+    return (head + "".join(f"--B\r\n{p}\r\n" for p in parts) + "--B--\r\n").encode()
+
+
+PDF_PART = (
+    "Content-Type: APPLICATION/PDF;\r\n\tname=relatorio.pdf\r\n"
+    "Content-Disposition: ATTACHMENT;\r\n\tfilename=relatorio.pdf\r\n"
+)
+XLS_PART = (
+    "Content-Type: application/vnd.ms-excel; name=planilha.xls\r\n"
+    "Content-Disposition: attachment; filename=planilha.xls\r\n"
+)
+LOGO_PART = (
+    "Content-Type: image/png; name=logo.png\r\nContent-Disposition: inline; filename=logo.png\r\n"
+    "Content-Id: <logo@x>\r\n"
+)
+# sem Content-Disposition: só o cid: no HTML marca como inline
+CID_PART = "Content-Type: image/png; name=assinatura.png\r\nContent-Id: <logo@x>\r\n"
+# conversa 900: anexo baixado + inline; anexo não baixado (.partial.emlx); inline só por cid
+ATTACHMENTS = {
+    3001: [("2", "relatorio.pdf"), ("3", "logo.png")],
+    3002: [("2", "planilha.xls")],
+    3003: [("2", "assinatura.png")],
+}
+DOWNLOADED = {(3001, "2", "relatorio.pdf")}
+PARTIAL = {12345, 3002}
 SIMPLE = b"From: x\r\nSubject: s\r\nContent-Type: text/plain\r\n\r\ncorpo\r\n"
 
 # ROWID, mailbox, conversation, message_id, sender, prefix, subject, date, to, cc, (path, body)
@@ -163,6 +199,12 @@ MESSAGES = [
         2013, 1, 800, 2013, 2, None, "Plano", RECENT + 2013, [1], [],
         ("Caixa de Entrada", reply(EMPTY_PLAIN, 'multipart/alternative; boundary="B"')),
     ),
+    (3001, 1, 900, 3001, 2, None, "Anexos", RECENT + 1, [1], [],
+     ("Caixa de Entrada", with_parts(PDF_PART, LOGO_PART))),
+    (3002, 1, 900, 3002, 2, None, "Anexos", RECENT + 2, [1], [],
+     ("Caixa de Entrada", with_parts(XLS_PART))),
+    (3003, 1, 900, 3003, 2, None, "Anexos", RECENT + 3, [1], [],
+     ("Caixa de Entrada", with_parts(CID_PART))),
     (7001, 8, 700, 71, 6, None, "Oi", RECENT, [2], [], ("Sent", SIMPLE)),
 ]
 
@@ -175,7 +217,7 @@ def emlx_path(mail: Path, url: str, mbox: str, rowid: int) -> Path:
     account = url.split("/")[2]
     digits = "/".join(reversed(str(rowid // 1000))) if rowid // 1000 else ""
     data = Path(mail, "V10", account, f"{mbox}.mbox", "STORE-UUID", "Data", digits, "Messages")
-    suffix = ".partial.emlx" if rowid == 12345 else ".emlx"
+    suffix = ".partial.emlx" if rowid in PARTIAL else ".emlx"
     return data / f"{rowid}{suffix}"
 
 
@@ -210,6 +252,13 @@ def library(tmp_path, monkeypatch):
                 path = emlx_path(mail, MAILBOXES[mb], file[0], row)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(emlx(file[1]))
+                for aid, name in ATTACHMENTS.get(row, []):
+                    c.execute("INSERT INTO attachments (message, attachment_id, name)"
+                              " VALUES (?,?,?)", (row, aid, name))
+                    if (row, aid, name) in DOWNLOADED:
+                        att = path.parent.parent / "Attachments" / str(row) / aid / name
+                        att.parent.mkdir(parents=True)
+                        att.write_bytes(b"%PDF")
     monkeypatch.setenv("CHATMINE_MAIL_ROOT", str(mail))
     return mail
 
@@ -233,7 +282,7 @@ def test_accounts_have_readable_labels(library):
 def test_conversations_skip_trash_spam_and_old(library):
     session = MailProvider().authenticate()
     convs = {c["id"]: c for c in MailProvider().list_conversations(session, START_MS)}
-    assert set(convs) == {"100", "200", "700", "800"}
+    assert set(convs) == {"100", "200", "700", "800", "900"}
     assert convs["100"]["topic"] == "Cotação"
     assert convs["100"]["type"] == "group"  # eu, Ana e Bia
     assert convs["200"]["topic"] == "Reunião"  # sem o "Fw:"
@@ -301,3 +350,23 @@ def test_quoted_history_is_cut_from_text_but_kept_in_html(library):
     assert by_id["2007"]["contentHtml"].count("Texto antigo.") == 1
     # tudo citado: mantém o corpo inteiro
     assert "Texto antigo." in by_id["2006"]["contentText"]
+
+
+def test_attachments_have_path_and_availability(library):
+    session = MailProvider().authenticate()
+    by_id = {m["id"]: m for m in messages(session, "900")}
+    [pdf] = by_id["3001"]["attachments"]  # logo.png é inline (Content-Disposition) e sai
+    expected = emlx_path(library, MAILBOXES[1], "Caixa de Entrada", 3001)
+    assert pdf["name"] == "relatorio.pdf"
+    assert pdf["contentType"] == "application/pdf"
+    att = expected.parent.parent / "Attachments" / "3001" / "2" / "relatorio.pdf"
+    assert pdf["path"] == str(att)
+    assert pdf["available"] is True
+    # .partial.emlx: o Mail não baixou o arquivo
+    [xls] = by_id["3002"]["attachments"]
+    assert (xls["name"], xls["contentType"]) == ("planilha.xls", "application/vnd.ms-excel")
+    assert xls["path"] is None
+    assert xls["available"] is False
+    # inline só por cid: referenciado no HTML
+    assert by_id["3003"]["attachments"] == []
+    assert by_id["3001"]["contentText"] == "Veja."

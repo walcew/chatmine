@@ -9,6 +9,7 @@ entre versões do macOS, por isso as consultas ficam todas aqui.
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import re
 import sqlite3
@@ -167,6 +168,42 @@ def bodies(msg: EmailMessage) -> tuple[str, str]:
     return strip_quoted(html_to_text(_html_without_quotes(html))) or html_to_text(html), html
 
 
+def attachments(
+    rows: list[sqlite3.Row], msg: EmailMessage | None, html: str, emlx: Path | None
+) -> list[dict[str, Any]]:
+    """Anexos da tabela `attachments` no formato comum; imagens inline (cid:/inline) ficam de fora.
+
+    O arquivo vive em `<Data>/Attachments/<ROWID>/<attachment_id>/<nome>`, ao lado de `Messages/`.
+    O .partial.emlx mantém os cabeçalhos das partes, então dá para classificar sem o arquivo.
+    """
+    # shortcut: casa a parte MIME pelo nome do arquivo, anexos homônimos viram um só; usar
+    # o attachment_id se aparecer caso real.
+    parts = {p.get_filename(): p for p in msg.walk() if p.get_filename()} if msg else {}
+    out = []
+    for r in rows:
+        part = parts.get(r["name"])
+        if part is not None:
+            cid = (part["Content-ID"] or "").strip().strip("<>")
+            if part.get_content_disposition() == "inline" or (cid and f"cid:{cid}" in html):
+                continue
+        file = (
+            emlx.parent.parent / "Attachments" / str(r["message"]) / r["attachment_id"] / r["name"]
+            if emlx
+            else None
+        )
+        found = bool(file and file.exists())
+        out.append({
+            "name": r["name"],
+            "contentType": part.get_content_type() if part is not None
+            else mimetypes.guess_type(r["name"])[0],
+            "contentUrl": file.as_uri() if found else None,
+            "path": str(file) if found else None,
+            "url": None,
+            "available": found,
+        })
+    return out
+
+
 def clean_subject(subject: str | None) -> str:
     return SUBJECT_PREFIX_RE.sub("", subject or "").strip()
 
@@ -245,6 +282,14 @@ SELECT r.message, r.type, a.address, a.comment
 FROM recipients r JOIN addresses a ON a.ROWID = r.address
 WHERE r.message IN (SELECT m.ROWID FROM messages m WHERE {where})
 ORDER BY r.message, r.type, r.position
+"""
+
+
+ATTACHMENTS_SQL = """
+SELECT t.message, t.attachment_id, t.name
+FROM attachments t
+WHERE t.message IN (SELECT m.ROWID FROM messages m WHERE {where})
+ORDER BY t.message, t.ROWID
 """
 
 
