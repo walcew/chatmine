@@ -26,9 +26,14 @@ def resolve_window(
     """Resolve (início, fim) de --since/--until/--days; ValueError em uso inválido."""
     if since and days is not None:
         raise ValueError("--since e --days não podem ser usados juntos")
+    if days is not None and days < 0:
+        raise ValueError(f"--days deve ser >= 0, recebi {days:g}")
     end = _parse(until, "--until", end_of_day=True) if until else now
     back = timedelta(days=DEFAULT_DAYS if days is None else days)
     start = _parse(since, "--since") if since else end - back
     if end < start:
-        raise ValueError("--until é anterior a --since")
+        fmt = "%Y-%m-%d %H:%M"
+        raise ValueError(
+            f"janela vazia: início {start.strftime(fmt)} depois do fim {end.strftime(fmt)}"
+        )
     return start, end

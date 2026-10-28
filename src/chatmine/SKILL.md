@@ -60,6 +60,20 @@ jq -c 'select(.conversationTopic == "Projeto X") | {composetime, who: .from.disp
 
 In WhatsApp the user's own messages have `from.mri == "self"`; WhatsApp does not extract edits, reactions or replies, and `contentHtml` is empty.
 
+## Search
+
+To find a message, decision or file without extracting everything, search all providers at once:
+
+```bash
+chatmine search "<term>" --days 3
+chatmine search "<term>" --provider teams --since 2026-10-01 --from <name> --conversation <title> --has-attachments
+```
+
+- The match is a substring that ignores case and accents, over the text, conversation title, sender and attachment names.
+- The window flags are the same as `extract`. `--context N` (default 2) adds N neighbours before and after each hit; `--limit` (default 50) caps the results, newest first.
+- stdout is one JSON envelope: `{query, window, providers, total, truncated, errors, results}`. Each result has `provider`, `account`, `conversation: {id, title, type}`, `id`, `time`, `from`, `isSelf`, `text`, `attachments: [{name, type, path, url, available}]` and `context`. When `available` is true, `path` is a local file you can open (Teams pasted images are downloaded to a cache).
+- A provider that fails goes to `errors` with a `hint` and the others still answer. The exit code is 1 only when every provider failed, and 2 for a usage error.
+
 ## Exit codes
 
 | Code | Meaning |

@@ -312,3 +312,31 @@ def test_fetch_failure_keeps_the_search(register, capsys):
     rc, env, _ = _search(capsys, "oi", "--provider", "fake-b", *WINDOW)
     assert rc == 0 and env["errors"] == []
     assert env["results"][0]["attachments"][0]["path"] == "/tmp/proposta-final.pdf"
+
+
+def test_one_on_one_without_topic_uses_counterpart_name(register, capsys):
+    dm = {"id": "19:abc@unq.gbl.spaces", "type": "oneOnOne", "topic": ""}
+    msgs = {dm["id"]: [
+        _msg("u2", dm, "2026-10-09T11:00:00Z", "eu respondi", sender=("me@ex.com", "Eu")),
+        _msg("u1", dm, "2026-10-09T10:00:00Z", "pergunta", sender=("c@ex.com", "Carla")),
+    ]}
+    register(_Fake("fake-dm", [dm], msgs))
+    _, env, _ = _search(capsys, "respondi", "--provider", "fake-dm", *WINDOW,
+                        "--conversation", "carla")
+    assert _ids(env) == ["u2"]
+    assert env["results"][0]["conversation"]["title"] == "Carla"
+
+
+def test_provider_list_is_trimmed_and_deduplicated(fake, capsys):
+    rc, env, _ = _search(capsys, "chegou", "--provider", "fake-a, fake-a", *WINDOW)
+    assert rc == 0
+    assert env["providers"] == ["fake-a"]
+    assert _ids(env) == ["g3"] and env["total"] == 1
+
+
+@pytest.mark.parametrize("flag", ["--limit", "--context"])
+def test_negative_limit_or_context_is_usage_error(fake, capsys, flag):
+    rc, env, err = _search(capsys, "x", "--provider", "fake-a", flag, "-1")
+    assert rc == 2 and env is None
+    assert flag in err
+    assert fake.calls == []

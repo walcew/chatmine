@@ -56,5 +56,16 @@ def test_invalid_date_has_clear_error():
 
 
 def test_until_before_since_is_error():
-    with pytest.raises(ValueError, match="--until"):
+    with pytest.raises(ValueError, match="janela vazia"):
         resolve_window("2026-10-05", "2026-10-01", None, NOW)
+
+
+def test_negative_days_is_error():
+    with pytest.raises(ValueError, match="--days"):
+        resolve_window(None, None, -1, NOW)
+
+
+def test_future_since_without_until_names_the_resolved_window():
+    with pytest.raises(ValueError, match="2026-10-30") as e:
+        resolve_window("2026-10-30T12:00:00Z", None, None, NOW)
+    assert "--until" not in str(e.value)

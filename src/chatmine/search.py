@@ -6,6 +6,7 @@ devolvem o `Message` canônico.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import unicodedata
@@ -14,7 +15,10 @@ from typing import Any
 
 from . import core
 from .core import Attachment, Conversation, Message, Sender, Session
+from .pipeline import one_on_one_title
 from .window import resolve_window
+
+Found = tuple[datetime | None, dict[str, Any], Session, Message]
 
 
 def fold(s: str | None) -> str:
@@ -39,10 +43,7 @@ def _who(s: Sender) -> str:
     return name or mri
 
 
-def _is_self(s: Sender, self_id: Any) -> bool:
-    # O Mail usa um conjunto de endereços como self_id.
-    if isinstance(self_id, set | frozenset):
-        return s.get("mri") in self_id
+def _is_self(s: Sender, self_id: str | None) -> bool:
     return bool(self_id) and s.get("mri") == self_id
 
 
@@ -56,7 +57,7 @@ def _attachment(a: Attachment) -> dict[str, Any]:
     }
 
 
-def _short(m: Message, self_id: Any) -> dict[str, Any]:
+def _short(m: Message, self_id: str | None) -> dict[str, Any]:
     out = {
         "id": m.get("id"),
         "time": _iso(_time(m.get("composetime"))),
@@ -90,7 +91,7 @@ def _result(
     return out
 
 
-def _matches(m: Message, conv: Conversation, args: Any) -> bool:
+def _matches(m: Message, conv: Conversation, args: argparse.Namespace) -> bool:
     title = conv.get("topic") or m.get("conversationTopic") or ""
     sender = f"{m['from'].get('displayName') or ''} {m['from'].get('mri') or ''}"
     names = " ".join(a.get("name") or "" for a in m.get("attachments") or [])
@@ -106,14 +107,19 @@ def _matches(m: Message, conv: Conversation, args: Any) -> bool:
     return any(q in fold(field) for field in (m.get("contentText"), title, sender, names))
 
 
-def _search_provider(name: str, args: Any, start: datetime, end: datetime) -> list[tuple]:
-    """Casamentos de um provider como (hora, resultado); exceções sobem ao chamador."""
+def _search_provider(
+    name: str, args: argparse.Namespace, start: datetime, end: datetime
+) -> list[Found]:
+    """Casamentos de um provider como (hora, resultado, session, mensagem).
+
+    Exceções sobem ao chamador.
+    """
     provider = core.get(name)
     session = provider.authenticate(args.account, args.profile)
     if (session.expires_at - datetime.now(tz=UTC)).total_seconds() < 60:
         raise RuntimeError("session expired")
     start_ms = int(start.timestamp() * 1000)
-    found = []
+    found: list[Found] = []
     for conv in provider.list_conversations(session, start_ms):
         try:
             msgs = [
@@ -126,6 +132,8 @@ def _search_provider(name: str, args: Any, start: datetime, end: datetime) -> li
             print(f"[{name}] pulando {conv['id']}: {str(e)[:80]}", file=sys.stderr)
             continue
         msgs.sort(key=lambda m: m.get("composetime") or "")
+        if title := one_on_one_title(conv, msgs, session.self_id):
+            conv = {**conv, "topic": title}
         for i, m in enumerate(msgs):
             if not _matches(m, conv, args):
                 continue
@@ -159,19 +167,26 @@ def _hint(e: Exception) -> str:
     return "Abra o app para renovar a sessão e rode novamente"
 
 
-def run_search(args: Any) -> int:
+def run_search(args: argparse.Namespace) -> int:
     try:
         start, end = resolve_window(args.since, args.until, args.days, datetime.now(tz=UTC))
     except ValueError as e:
         print(f"Erro: {e}", file=sys.stderr)
         return 2
-    selected = args.provider.split(",") if args.provider else core.names()
+    for flag, value in (("--limit", args.limit), ("--context", args.context)):
+        if value < 0:
+            print(f"Erro: {flag} deve ser >= 0", file=sys.stderr)
+            return 2
+    if args.provider:
+        selected = list(dict.fromkeys(p.strip() for p in args.provider.split(",") if p.strip()))
+    else:
+        selected = core.names()
     unknown = [p for p in selected if p not in core.names()]
     if unknown:
         print(f"Erro: provider desconhecido: {', '.join(unknown)}", file=sys.stderr)
         return 2
 
-    found: list[tuple] = []
+    found: list[Found] = []
     errors = []
     for name in selected:
         print(f"[{name}] buscando…", file=sys.stderr)

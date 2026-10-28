@@ -1,3 +1,5 @@
+import json
+
 from chatmine.providers.teams.normalize import (
     html_to_text,
     normalize_conversation,
@@ -90,7 +92,7 @@ def test_html_to_text_collapses_whitespace():
 AMS_URL = "https://eu-api.asm.skype.com/v1/objects/0-neu-d4-abc123/views/imgo"
 
 
-def test_inline_ams_image_becomes_attachment_with_object_id():
+def test_inline_ams_image_becomes_attachment():
     html = (
         f'<div>veja<img itemtype="http://schema.skype.com/AMSImage" src="{AMS_URL}" alt="imagem">'
         '<img itemtype="http://schema.skype.com/Emoji" src="https://x/emoji.png"></div>'
@@ -99,12 +101,12 @@ def test_inline_ams_image_becomes_attachment_with_object_id():
     assert out["attachments"] == [
         {
             "name": "imagem", "contentType": None, "contentUrl": AMS_URL, "path": None,
-            "url": AMS_URL, "available": False, "objectId": "0-neu-d4-abc123",
+            "url": AMS_URL, "available": False,
         }
     ]
 
 
-def test_ams_attachment_is_classified_and_sharepoint_is_not():
+def test_attachments_keep_only_the_canonical_fields():
     raw = {
         "attachments": [
             {"name": "print.png", "contentType": "image/png", "contentUrl": AMS_URL},
@@ -113,6 +115,28 @@ def test_ams_attachment_is_classified_and_sharepoint_is_not():
         ]
     }
     ams, sharepoint = normalize_message(raw, conv_topic="")["attachments"]
-    assert ams["objectId"] == "0-neu-d4-abc123"
-    assert "objectId" not in sharepoint
+    assert set(ams) == set(sharepoint) == {
+        "name", "contentType", "contentUrl", "path", "url", "available"
+    }
     assert sharepoint["available"] is False
+
+
+def test_shared_files_in_properties_become_link_attachments():
+    files = [
+        {"fileName": "relatorio.xlsx", "objectUrl": "https://x.sharepoint.com/relatorio.xlsx",
+         "fileInfo": {"shareUrl": "https://x.sharepoint.com/:x:/s"}},
+        {"fileName": "sem-objeto.pdf", "fileInfo": {"shareUrl": "https://x.sharepoint.com/:b:/s"}},
+    ]
+    raw = {"content": "<p>segue</p>", "properties": {"files": json.dumps(files)}}
+    xlsx, pdf = normalize_message(raw, conv_topic="")["attachments"]
+    assert xlsx == {
+        "name": "relatorio.xlsx", "contentType": None,
+        "contentUrl": "https://x.sharepoint.com/relatorio.xlsx", "path": None,
+        "url": "https://x.sharepoint.com/relatorio.xlsx", "available": False,
+    }
+    assert pdf["url"] == "https://x.sharepoint.com/:b:/s" and pdf["available"] is False
+
+
+def test_malformed_properties_files_is_ignored():
+    raw = {"content": "x", "properties": {"files": "{não é json"}}
+    assert normalize_message(raw, conv_topic="")["attachments"] == []

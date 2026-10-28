@@ -1,3 +1,5 @@
+import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -32,6 +34,15 @@ class _Fake:
 
 
 @pytest.fixture
+def utc(monkeypatch):
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.fixture
 def fake():
     p = _Fake()
     core.register(p)
@@ -40,16 +51,10 @@ def fake():
 
 
 def _ids(out):
-    import json
-
     return [json.loads(line)["id"] for line in (out / "messages.jsonl").read_text().splitlines()]
 
 
-def test_until_cuts_later_messages_and_summary_shows_window(fake, tmp_path, monkeypatch):
-    monkeypatch.setenv("TZ", "UTC")
-    import time
-
-    time.tzset()
+def test_until_cuts_later_messages_and_summary_shows_window(fake, utc, tmp_path):
     rc = main(["fake-window", "extract", "--since", "2026-10-01", "--until", "2026-10-02",
                "--out", str(tmp_path)])
     assert rc == 0

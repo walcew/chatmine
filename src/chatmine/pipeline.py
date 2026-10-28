@@ -15,10 +15,25 @@ from rich.progress import (
 )
 
 from . import core
+from .core import Conversation, Message
 from .output import write_json, write_jsonl, write_summary
 from .window import resolve_window
 
 console = Console()
+
+
+def one_on_one_title(conv: Conversation, msgs: list[Message], self_id: str | None) -> str | None:
+    """Chat 1:1 sem título: nome do primeiro interlocutor que não é o usuário."""
+    if conv["type"] != "oneOnOne" or conv["topic"]:
+        return None
+    return next(
+        (
+            m["from"]["displayName"]
+            for m in msgs
+            if m["from"]["mri"] and m["from"]["mri"] != self_id and m["from"]["displayName"]
+        ),
+        None,
+    )
 
 
 def _after(composetime: str | None, limit: datetime) -> bool:
@@ -82,7 +97,7 @@ def run_extract(
             topic = conv.get("topic") or cid
             prog.update(task, description=f"  {topic[:40]}")
             count = 0
-            counterpart_name: str | None = None
+            conv_msgs: list[Message] = []
             try:
                 for norm in provider.iter_messages(
                     session,
@@ -99,24 +114,16 @@ def run_extract(
                     count += 1
                     sender = norm["from"]["displayName"] or norm["from"]["mri"] or "?"
                     sender_counts[sender] += 1
-                    if (
-                        conv["type"] == "oneOnOne"
-                        and counterpart_name is None
-                        and norm["from"]["mri"]
-                        and norm["from"]["mri"] != self_id
-                        and norm["from"]["displayName"]
-                    ):
-                        counterpart_name = norm["from"]["displayName"]
+                    conv_msgs.append(norm)
             except RuntimeError as e:
                 # Conversa inacessível (ex.: 403 em reunião da qual não somos
                 # membros do roster) — pula sem abortar a extração.
                 console.print(f"  [yellow]pulando {topic[:40]}: {str(e)[:80]}[/yellow]")
-            # Chat 1:1 sem título: usa o nome do interlocutor.
-            if conv["type"] == "oneOnOne" and counterpart_name and not conv["topic"]:
-                conv["topic"] = counterpart_name
-                for m in all_messages:
-                    if m["conversationId"] == cid and not m["conversationTopic"]:
-                        m["conversationTopic"] = counterpart_name
+            if name := one_on_one_title(conv, conv_msgs, self_id):
+                conv["topic"] = name
+                for m in conv_msgs:
+                    if not m["conversationTopic"]:
+                        m["conversationTopic"] = name
             msg_counts[cid] = count
             prog.advance(task)
 
