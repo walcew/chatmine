@@ -41,7 +41,9 @@ class TeamsProvider:
             raw=ChatSvcClient(tokens),  # client chatsvc vivo desta sessão
         )
 
-    def list_conversations(self, session: Session, start_time_ms: int) -> list[Conversation]:
+    def list_conversations(
+        self, session: Session, start_time_ms: int, *, include_bulk: bool = False
+    ) -> list[Conversation]:
         raw = list_recent_conversations(session.raw, start_time_ms)
         return [normalize_conversation(c) for c in raw]
 

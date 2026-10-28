@@ -56,7 +56,9 @@ class WhatsAppProvider:
             raw=LocalStore(root=root, names=load_names(root)),
         )
 
-    def list_conversations(self, session: Session, start_time_ms: int) -> list[Conversation]:
+    def list_conversations(
+        self, session: Session, start_time_ms: int, *, include_bulk: bool = False
+    ) -> list[Conversation]:
         with closing(connect(session.raw.root / "ChatStorage.sqlite")) as conn:
             rows = conn.execute(CONVERSATIONS_SQL, (ms_to_apple(start_time_ms),)).fetchall()
         return [normalize_conversation(dict(r)) for r in rows]

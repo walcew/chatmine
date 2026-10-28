@@ -36,6 +36,7 @@ def run_extract(
     out_dir: str,
     include_system: bool,
     include_raw: bool,
+    include_bulk: bool = False,
 ) -> int:
     provider = core.get(provider_name)
     now = datetime.now(tz=UTC)
@@ -61,7 +62,7 @@ def run_extract(
     out.mkdir(parents=True, exist_ok=True)
 
     console.print(f"Listando conversas desde {window_start.isoformat()}…")
-    conversations = provider.list_conversations(session, start_ms)
+    conversations = provider.list_conversations(session, start_ms, include_bulk=include_bulk)
     console.print(f"  {len(conversations)} conversas")
 
     self_id = session.self_id

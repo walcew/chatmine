@@ -1,5 +1,6 @@
 """Provider mail contra uma árvore sintética que imita ~/Library (Mail + Accounts)."""
 
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -30,7 +31,7 @@ CREATE TABLE recipients (ROWID INTEGER PRIMARY KEY, message INTEGER, address INT
   type INTEGER, position INTEGER);
 CREATE TABLE messages (ROWID INTEGER PRIMARY KEY, message_id INTEGER, global_message_id INTEGER,
   sender INTEGER, subject_prefix TEXT, subject INTEGER, date_sent INTEGER, date_received INTEGER,
-  mailbox INTEGER, deleted INTEGER DEFAULT 0, conversation_id INTEGER);
+  mailbox INTEGER, deleted INTEGER DEFAULT 0, conversation_id INTEGER, unsubscribe_type INTEGER);
 CREATE TABLE attachments (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, message INTEGER NOT NULL,
   attachment_id TEXT, name TEXT);
 """
@@ -43,6 +44,8 @@ ADDRESSES = {
     5: ("carlos@ext.example", "Carlos"),
     6: ("outro@pessoal.example", "Eu Pessoal"),
     7: ("spam@ext.example", ""),
+    8: ("news@loja.example", "Loja"),
+    9: ("lista@grupo.example", "Lista"),
 }
 MAILBOXES = {
     1: "ews://EWS-0001/Caixa%20de%20Entrada",
@@ -206,7 +209,13 @@ MESSAGES = [
     (3003, 1, 900, 3003, 2, None, "Anexos", RECENT + 3, [1], [],
      ("Caixa de Entrada", with_parts(CID_PART))),
     (7001, 8, 700, 71, 6, None, "Oi", RECENT, [2], [], ("Sent", SIMPLE)),
+    # newsletter (1100) e thread de lista em que respondi (1200), ambas com unsubscribe one-click
+    (1101, 1, 1100, 1101, 8, None, "Ofertas", RECENT, [1], [], None),
+    (1201, 1, 1200, 1201, 9, None, "Debate", RECENT, [1], [], None),
+    (1202, 1, 1200, 1202, 1, "Re: ", "Debate", RECENT + 1, [9], [], None),
 ]
+# unsubscribe_type é bitmask (1 mailto, 2 http, 4 one-click); sem entrada fica NULL
+UNSUBSCRIBE = {1101: 6, 1201: 7, 1202: 7}
 
 
 def emlx(body: bytes) -> bytes:
@@ -239,8 +248,8 @@ def library(tmp_path, monkeypatch):
         for i, (row, mb, conv, mid, snd, pfx, subj, date, to, cc, file) in enumerate(MESSAGES):
             c.execute("INSERT INTO subjects VALUES (?,?)", (i, subj))
             c.execute(
-                "INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,0,?)",
-                (row, mid, mid, snd, pfx, i, date, date, mb, conv),
+                "INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,0,?,?)",
+                (row, mid, mid, snd, pfx, i, date, date, mb, conv, UNSUBSCRIBE.get(row)),
             )
             for kind, addrs in ((0, to), (1, cc)):
                 for pos, addr in enumerate(addrs):
@@ -282,7 +291,7 @@ def test_accounts_have_readable_labels(library):
 def test_conversations_skip_trash_spam_and_old(library):
     session = MailProvider().authenticate()
     convs = {c["id"]: c for c in MailProvider().list_conversations(session, START_MS)}
-    assert set(convs) == {"100", "200", "700", "800", "900"}
+    assert set(convs) == {"100", "200", "700", "800", "900", "1200"}  # sem a newsletter 1100
     assert convs["100"]["topic"] == "Cotação"
     assert convs["100"]["type"] == "group"  # eu, Ana e Bia
     assert convs["200"]["topic"] == "Reunião"  # sem o "Fw:"
@@ -370,3 +379,28 @@ def test_attachments_have_path_and_availability(library):
     # inline só por cid: referenciado no HTML
     assert by_id["3003"]["attachments"] == []
     assert by_id["3001"]["contentText"] == "Veja."
+
+
+def _extracted_convs(tmp_path, *flags):
+    out = tmp_path / "out"
+    assert main(["mail", "extract", "--days", "1", "--out", str(out), *flags]) == 0
+    return {c["id"] for c in json.loads((out / "conversations.json").read_text())}
+
+
+def test_newsletter_excluded_unless_include_bulk(library, tmp_path):
+    assert "1100" not in _extracted_convs(tmp_path)
+    assert "1100" in _extracted_convs(tmp_path, "--include-bulk")
+
+
+def test_list_thread_with_my_reply_is_kept(library, tmp_path):
+    # as duas mensagens têm unsubscribe one-click, mas uma é minha
+    assert "1200" in _extracted_convs(tmp_path)
+
+
+def test_search_include_bulk_reaches_mail(library, capsys):
+    def ids(*flags):
+        assert main(["search", "Ofertas", "--provider", "mail", "--days", "1", *flags]) == 0
+        return [r["id"] for r in json.loads(capsys.readouterr().out)["results"]]
+
+    assert ids() == []
+    assert ids("--include-bulk") == ["1101"]

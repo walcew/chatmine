@@ -269,7 +269,7 @@ def message_filter(mailbox_ids: list[int]) -> str:
 
 MESSAGES_SQL = """
 SELECT m.ROWID, m.message_id, m.global_message_id, m.conversation_id, m.mailbox,
-       m.date_sent, m.date_received, s.subject, a.address, a.comment
+       m.date_sent, m.date_received, m.unsubscribe_type, s.subject, a.address, a.comment
 FROM messages m
 JOIN subjects s ON s.ROWID = m.subject
 LEFT JOIN addresses a ON a.ROWID = m.sender
@@ -291,6 +291,22 @@ FROM attachments t
 WHERE t.message IN (SELECT m.ROWID FROM messages m WHERE {where})
 ORDER BY t.message, t.ROWID
 """
+
+
+# Bit do List-Unsubscribe-Post (one-click, RFC 8058) em `messages.unsubscribe_type`
+# (1 mailto, 2 http, 4 one-click). Calibração na issue #9: `list_id_hash` vem 0 na maioria e
+# listas de discussão (sem one-click) trazem gente de verdade, então só o one-click conta.
+ONE_CLICK_UNSUBSCRIBE = 4
+
+
+def is_bulk(rows: list[sqlite3.Row], own: frozenset[str]) -> bool:
+    """Conversa em massa: toda mensagem tem one-click, de um só remetente e nenhum é meu."""
+    senders = {(r["address"] or "").lower() for r in rows}
+    return (
+        all((r["unsubscribe_type"] or 0) & ONE_CLICK_UNSUBSCRIBE for r in rows)
+        and len(senders) == 1
+        and not senders & own
+    )
 
 
 def dedup(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:

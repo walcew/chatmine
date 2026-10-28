@@ -18,7 +18,7 @@ class _Fake:
         acc = Account(id="a", label="conta", expires_at=exp)
         return Session(account=acc, expires_at=exp, self_id="me", label="conta")
 
-    def list_conversations(self, session, start_time_ms):
+    def list_conversations(self, session, start_time_ms, **kwargs):
         self.start_ms = start_time_ms
         return [{"id": "c1", "type": "group", "topic": "T"}]
 

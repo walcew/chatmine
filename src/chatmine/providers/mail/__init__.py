@@ -24,6 +24,7 @@ from .store import (
     dedup,
     emlx_path,
     epoch_to_iso,
+    is_bulk,
     load_mailboxes,
     mailbox_account,
     mailbox_dir,
@@ -123,8 +124,16 @@ class MailProvider:
                 files.setdefault(r["message"], []).append(r)
         return rows, recipients, files
 
-    def list_conversations(self, session: Session, start_time_ms: int) -> list[Conversation]:
+    def list_conversations(
+        self, session: Session, start_time_ms: int, *, include_bulk: bool = False
+    ) -> list[Conversation]:
         rows, recipients, _ = self._rows(session.raw, start_time_ms)
+        if not include_bulk:
+            by_conv: dict[int, list] = {}
+            for r in rows:
+                by_conv.setdefault(r["conversation_id"], []).append(r)
+            bulk = {cid for cid, rs in by_conv.items() if is_bulk(rs, session.self_id)}
+            rows = [r for r in rows if r["conversation_id"] not in bulk]
         convs: dict[int, Conversation] = {}
         people: dict[int, set[str]] = {}
         for r in rows:  # mais nova primeiro: o assunto e a data vêm da última mensagem

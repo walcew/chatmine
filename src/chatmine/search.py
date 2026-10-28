@@ -114,7 +114,7 @@ def _search_provider(name: str, args: Any, start: datetime, end: datetime) -> li
         raise RuntimeError("session expired")
     start_ms = int(start.timestamp() * 1000)
     found = []
-    for conv in provider.list_conversations(session, start_ms):
+    for conv in provider.list_conversations(session, start_ms, include_bulk=args.include_bulk):
         try:
             msgs = [
                 m
