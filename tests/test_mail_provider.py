@@ -99,6 +99,9 @@ QUOTED = {
     2004: f"Novo.\n\n{OUTLOOK_EN}",
     2005: "Novo.\n> Texto antigo.\n> Mais antigo.",
     2006: "Em seg., 5 de out. de 2026, Carlos escreveu:\n> Texto antigo.",  # tudo citado
+    2008: "Novo.\n\nCarlos <mailto:c@ext.example>> escreveu:\n\nTexto antigo.",  # sem "Em"
+    # CRLF, como nos .emlx reais
+    2009: "Novo.\r\n\r\n5 out. 2026, Carlos <c@ext.example> escreveu:\r\n\r\nTexto antigo.",
 }
 SIMPLE = b"From: x\r\nSubject: s\r\nContent-Type: text/plain\r\n\r\ncorpo\r\n"
 
@@ -277,7 +280,7 @@ def test_mail_listed_in_providers(capsys):
 def test_quoted_history_is_cut_from_text_but_kept_in_html(library):
     session = MailProvider().authenticate()
     by_id = {m["id"]: m for m in messages(session, "800")}
-    for rowid in ("2001", "2002", "2003", "2004", "2005", "2007"):
+    for rowid in ("2001", "2002", "2003", "2004", "2005", "2007", "2008", "2009"):
         assert by_id[rowid]["contentText"] == "Novo.", rowid
     assert by_id["2007"]["contentHtml"].count("Texto antigo.") == 1
     # tudo citado: mantém o corpo inteiro

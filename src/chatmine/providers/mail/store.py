@@ -48,10 +48,11 @@ SUBJECT_PREFIX_RE = re.compile(r"^(?:\s*(?:re|res|fw|fwd|enc)\s*:)+\s*", re.I)
 
 RECIPIENT_TO, RECIPIENT_CC = 0, 1
 
-# Início do histórico citado: "Em ... escreveu:" / "On ... wrote:" (pode quebrar linha) ou o
-# bloco "De:/From: ... Enviado:/Sent:" do Outlook. Marcadores só em PT e EN.
+# Início do histórico citado: "Em ... escreveu:" / "On ... wrote:" (pode quebrar linha), a linha
+# "Nome <email> escreveu:" sem o "Em" ou o bloco "De:/From: ... Enviado:/Sent:" do Outlook.
+# Marcadores só em PT e EN.
 QUOTE_START_RE = re.compile(
-    r"^(?:(?:Em|On) .{0,300}?(?:escreveu|wrote):[ \t]*$"
+    r"^(?:(?:(?:Em|On) .{0,300}?|[^\n]{0,300}?)(?:escreveu|wrote):[ \t]*$"
     r"|(?:De|From):(?:[^\n]*\n){0,3}?[^\n]*?\b(?:Enviado|Sent):)",
     re.M | re.S,
 )
@@ -138,6 +139,7 @@ def _part_text(part: Any) -> str:
 
 def strip_quoted(text: str) -> str:
     """Só o texto novo: corta do marcador de citação em diante e tira as linhas com `>`."""
+    text = text.replace("\r\n", "\n")
     if m := QUOTE_START_RE.search(text):
         text = text[: m.start()]
     return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith(">")).strip()
