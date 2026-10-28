@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from bs4 import BeautifulSoup
+
 from ..teams.normalize import html_to_text
 
 # Aponta para o equivalente a ~/Library/Mail; o Accounts4.sqlite é lido de ../Accounts.
@@ -45,6 +47,14 @@ SENT_MAILBOXES = {
 SUBJECT_PREFIX_RE = re.compile(r"^(?:\s*(?:re|res|fw|fwd|enc)\s*:)+\s*", re.I)
 
 RECIPIENT_TO, RECIPIENT_CC = 0, 1
+
+# Início do histórico citado: "Em ... escreveu:" / "On ... wrote:" (pode quebrar linha) ou o
+# bloco "De:/From: ... Enviado:/Sent:" do Outlook. Marcadores só em PT e EN.
+QUOTE_START_RE = re.compile(
+    r"^(?:(?:Em|On) .{0,300}?(?:escreveu|wrote):[ \t]*$"
+    r"|(?:De|From):(?:[^\n]*\n){0,3}?[^\n]*?\b(?:Enviado|Sent):)",
+    re.M | re.S,
+)
 
 
 def mail_root() -> Path:
@@ -126,13 +136,32 @@ def _part_text(part: Any) -> str:
         return payload.decode("utf-8", "replace")
 
 
+def strip_quoted(text: str) -> str:
+    """Só o texto novo: corta do marcador de citação em diante e tira as linhas com `>`."""
+    if m := QUOTE_START_RE.search(text):
+        text = text[: m.start()]
+    return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith(">")).strip()
+
+
+def _html_without_quotes(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    for quote in soup.find_all("blockquote"):
+        quote.decompose()
+    return str(soup)
+
+
 def bodies(msg: EmailMessage) -> tuple[str, str]:
-    """(texto, html): o texto vem do text/plain ou, na falta dele, do HTML convertido."""
+    """(texto sem citações, html completo). O texto vem do text/plain ou, na falta dele, do HTML.
+
+    Se o corte esvaziar o texto, vale o corpo inteiro.
+    """
     plain = msg.get_body(("plain",))
     html_part = msg.get_body(("html",))
     html = _part_text(html_part) if html_part else ""
-    text = _part_text(plain).strip() if plain else html_to_text(html)
-    return text, html
+    if plain:
+        full = _part_text(plain).strip()
+        return strip_quoted(full) or full, html
+    return strip_quoted(html_to_text(_html_without_quotes(html))) or html_to_text(html), html
 
 
 def clean_subject(subject: str | None) -> str:
