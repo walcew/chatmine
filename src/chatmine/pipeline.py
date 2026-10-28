@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import sys
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -15,8 +16,13 @@ from rich.progress import (
 
 from . import core
 from .output import write_json, write_jsonl, write_summary
+from .window import resolve_window
 
 console = Console()
+
+
+def _after(composetime: str | None, limit: datetime) -> bool:
+    return bool(composetime) and datetime.fromisoformat(composetime) > limit
 
 
 def run_extract(
@@ -24,14 +30,21 @@ def run_extract(
     *,
     selector: str | None,
     profile: str | None,
-    days: float,
+    days: float | None,
+    since: str | None = None,
+    until: str | None = None,
     out_dir: str,
     include_system: bool,
     include_raw: bool,
 ) -> int:
     provider = core.get(provider_name)
-    session = provider.authenticate(selector, profile)
     now = datetime.now(tz=UTC)
+    try:
+        window_start, window_end = resolve_window(since, until, days, now)
+    except ValueError as e:
+        print(f"Erro: {e}", file=sys.stderr)
+        return 2
+    session = provider.authenticate(selector, profile)
 
     ttl = session.expires_at - now
     if ttl.total_seconds() < 60:
@@ -42,7 +55,6 @@ def run_extract(
         return 2
     console.print(f"[green]Sessão ok[/] — {session.label} (expira em {ttl})")
 
-    window_start = now - timedelta(days=days)
     start_ms = int(window_start.timestamp() * 1000)
 
     out = Path(out_dir)
@@ -79,6 +91,9 @@ def run_extract(
                     include_system=include_system,
                     include_raw=include_raw,
                 ):
+                    # O provider só recebe o início; o corte por `until` é aqui.
+                    if until and _after(norm.get("composetime"), window_end):
+                        continue
                     norm["conversationId"] = cid
                     all_messages.append(norm)
                     count += 1
@@ -113,7 +128,7 @@ def run_extract(
         provider=provider_name,
         account_label=session.account.label,
         window_start=window_start,
-        window_end=now,
+        window_end=window_end,
         conversations=conversations,
         message_counts=msg_counts,
         sender_counts=sender_counts,

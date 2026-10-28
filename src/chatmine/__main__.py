@@ -47,6 +47,8 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         selector=args.account,
         profile=args.profile,
         days=args.days,
+        since=args.since,
+        until=args.until,
         out_dir=args.out,
         include_system=args.include_system,
         include_raw=args.raw,
@@ -61,10 +63,12 @@ def _add_provider_commands(sub: argparse._SubParsersAction, name: str) -> None:
     pa.add_argument("--profile", default=None, help="Perfil/instalação (ex. Teams: tfw|tfl)")
     pa.set_defaults(func=_cmd_accounts, provider=name)
 
-    pe = psub.add_parser("extract", help="Extrai mensagens dos últimos N dias")
+    pe = psub.add_parser("extract", help="Extrai mensagens dos últimos N dias ou de uma janela")
     pe.add_argument("--account", default=None, help="Seletor da conta (tenant-id, UPN ou domínio)")
     pe.add_argument("--profile", default=None, help="Perfil/instalação (ex. Teams: tfw|tfl)")
-    pe.add_argument("--days", type=float, default=7.0)
+    pe.add_argument("--days", type=float, default=None, help="Últimos N dias (padrão 7)")
+    pe.add_argument("--since", default=None, help="Início, ISO 8601 (fuso local se omitido)")
+    pe.add_argument("--until", default=None, help="Fim da janela; só data vale até o fim do dia")
     pe.add_argument("--out", default="./out")
     pe.add_argument("--include-system", action="store_true", help="Inclui mensagens de sistema")
     pe.add_argument("--raw", action="store_true", help="Inclui o JSON cru de cada mensagem")
