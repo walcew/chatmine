@@ -66,6 +66,16 @@ def test_media_attachment_and_raw():
     assert out["contentText"] == ""
     assert out["attachments"] == [
         {"name": "contrato.pdf", "contentType": "document",
-         "contentUrl": "file:///wa/Message/Media/x/contrato.pdf"}
+         "contentUrl": "file:///wa/Message/Media/x/contrato.pdf",
+         "path": "/wa/Message/Media/x/contrato.pdf", "url": None, "available": False}
     ]
     assert out["raw"] == row
+
+
+def test_media_available_when_file_exists(tmp_path):
+    (tmp_path / "Media").mkdir()
+    (tmp_path / "Media" / "foto.jpg").write_bytes(b"x")
+    row = {"Z_PK": 5, "ZISFROMME": 1, "ZMESSAGETYPE": 1, "media_path": "Media/foto.jpg"}
+    att = normalize_message(row, DM, {}, tmp_path)["attachments"][0]
+    assert att["path"] == str(tmp_path / "Media" / "foto.jpg")
+    assert att["available"] is True

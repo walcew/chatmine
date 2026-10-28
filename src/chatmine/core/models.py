@@ -45,6 +45,11 @@ class Attachment(TypedDict):
     name: str | None
     contentType: str | None
     contentUrl: str | None
+    # Forma única entre providers: `path` é o arquivo local absoluto, `url` o link remoto
+    # e `available` diz se o arquivo pode ser aberto agora.
+    path: NotRequired[str | None]
+    url: NotRequired[str | None]
+    available: NotRequired[bool]
 
 
 class Reaction(TypedDict):

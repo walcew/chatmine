@@ -93,6 +93,9 @@ def normalize_message(
                 "name": a.get("name"),
                 "contentType": a.get("contentType"),
                 "contentUrl": a.get("contentUrl"),
+                "path": None,
+                "url": a.get("contentUrl"),
+                "available": False,  # o download fica para o search
             }
             for a in (msg.get("attachments") or [])
         ],

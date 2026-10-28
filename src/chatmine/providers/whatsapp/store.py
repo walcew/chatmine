@@ -156,11 +156,15 @@ def normalize_message(
     attachments = []
     if row.get("media_path") or row.get("media_title"):
         path = row.get("media_path")
+        full = media_root / path if path else None
         attachments.append(
             {
                 "name": row.get("media_title") or (Path(path).name if path else None),
                 "contentType": MESSAGE_TYPES.get(mtype, f"type:{mtype}"),
-                "contentUrl": (media_root / path).as_uri() if path else None,
+                "contentUrl": full.as_uri() if full else None,
+                "path": str(full) if full else None,
+                "url": None,
+                "available": bool(full and full.exists()),
             }
         )
     text = row.get("ZTEXT") or ""
