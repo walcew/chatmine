@@ -41,6 +41,7 @@ chatmine teams extract --account <domain> --days 1 --out <dir>
 chatmine whatsapp extract --days 3 --out <dir>
 ```
 
+- `--since`/`--until` (ISO 8601 date or datetime, local zone when omitted) set an explicit window instead of `--days`; they cannot be combined with `--days`. A date-only `--until` runs to the end of that day.
 - `--days` accepts fractions (`0.5` = last 12 hours). Ask for the smallest window that answers the question: a WhatsApp account can hold hundreds of thousands of messages.
 - `--out` defaults to `./out`. Write to a temporary directory, never inside a git repository, so private chats are not committed.
 - `--include-system` adds system events (joins, calls, group changes). `--raw` adds the raw provider record to each message; use it only to debug.

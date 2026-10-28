@@ -35,7 +35,10 @@ def test_normalize_message_canonical_shape():
     assert out["parentMessageId"] == "999"
     assert out["reactions"] == [{"key": "like", "count": 2}]
     assert len(out["attachments"]) == 1
-    assert out["attachments"][0]["name"] == "doc.pdf"
+    assert out["attachments"][0] == {
+        "name": "doc.pdf", "contentType": "application/pdf", "contentUrl": "https://x/doc.pdf",
+        "path": None, "url": "https://x/doc.pdf", "available": False,
+    }
 
 
 def test_normalize_message_raw_opt_in():
