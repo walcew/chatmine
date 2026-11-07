@@ -18,6 +18,8 @@ MEDIA = Path("/wa/Message")
 def test_apple_epoch_roundtrip():
     assert apple_to_iso(0) == "2001-01-01T00:00:00.000Z"
     assert apple_to_iso(None) is None
+    assert apple_to_iso(1e12) is None  # fora de 1..9999
+    assert apple_to_iso(-1e12) is None
     assert ms_to_apple(978307200_000) == 0
 
 

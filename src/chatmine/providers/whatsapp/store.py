@@ -82,7 +82,11 @@ def load_names(root: Path) -> dict[str, str]:
 def apple_to_iso(ts: float | None) -> str | None:
     if ts is None:
         return None
-    dt = datetime.fromtimestamp(ts + APPLE_EPOCH, tz=UTC)
+    try:
+        dt = datetime.fromtimestamp(ts + APPLE_EPOCH, tz=UTC)
+    except (ValueError, OverflowError, OSError):
+        # Data corrompida no banco não pode derrubar o provider: vira "sem hora".
+        return None
     return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
