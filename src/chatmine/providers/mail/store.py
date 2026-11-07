@@ -215,7 +215,11 @@ def clean_subject(subject: str | None) -> str:
 def epoch_to_iso(ts: int | None) -> str | None:
     if ts is None:
         return None
-    dt = datetime.fromtimestamp(ts, tz=UTC)
+    try:
+        dt = datetime.fromtimestamp(ts, tz=UTC)
+    except (ValueError, OverflowError, OSError):
+        # Data corrompida no banco não pode derrubar o provider: vira "sem hora".
+        return None
     return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 

@@ -463,3 +463,11 @@ def test_search_result_carries_message_account(library, capsys):
     accounts = {r["conversation"]["id"]: r["account"] for r in _search(capsys, "")}
     assert accounts["100"] == "eu@trabalho.example"
     assert accounts["200"] == "eu@gmail.example"
+
+
+def test_epoch_to_iso_out_of_range_is_none():
+    from chatmine.providers.mail.store import epoch_to_iso
+
+    assert epoch_to_iso(0) == "1970-01-01T00:00:00.000Z"
+    assert epoch_to_iso(10**15) is None  # fora de 1..9999
+    assert epoch_to_iso(-(10**15)) is None
